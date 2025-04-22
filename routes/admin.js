@@ -8,13 +8,15 @@ const Order = require("../models/Order");  // Order model import
 const auth = require("../middleware/auth");
 const OrderHistory = require("../models/OrderHistory");
 const { route } = require("./public");
+const Offer = require("../models/Offer");   
 
 const router = express.Router();
 
 // Static predefined categories
 const categories = ["Pizza", "Main Course", "Desserts", "Beverages"];
 
-router.get("/:restaurantId/details", auth, async (req, res) => {
+
+router.get("/:restaurantId/details", async (req, res) => {
   try {
     const restaurant = await Restaurant.findById(req.params.restaurantId);
     if (!restaurant) {
@@ -27,6 +29,62 @@ router.get("/:restaurantId/details", auth, async (req, res) => {
   }
 });
 
+
+// GET all offers for a restaurant
+router.get("/:restaurantId/offers", async (req, res) => {
+  try {
+    const offers = await Offer.find({ restaurant: req.params.restaurantId })
+      .sort({ createdAt: -1 });
+    res.json(offers);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// POST a new offer
+router.post("/:restaurantId/offers", async (req, res) => {
+  const { image } = req.body;
+  if (!image) return res.status(400).json({ message: "Image is required" });
+  try {
+    const newOffer = new Offer({
+      restaurant: req.params.restaurantId,
+      image,
+    });
+    await newOffer.save();
+    res.status(201).json(newOffer);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Error saving offer" });
+  }
+});
+
+router.delete(
+  "/:restaurantId/offers/:offerId",
+  auth,
+  async (req, res) => {
+    try {
+      const { restaurantId, offerId } = req.params;
+
+      // Attempt to find & delete the offer that matches both IDs
+      const deleted = await Offer.findOneAndDelete({
+        _id: offerId,
+        restaurant: restaurantId,
+      });
+
+      if (!deleted) {
+        // No matching document
+        return res.status(404).json({ message: "Offer not found" });
+      }
+
+      // Success
+      res.json({ message: "Offer deleted successfully" });
+    } catch (err) {
+      console.error("Error deleting offer:", err);
+      res.status(500).json({ message: "Server error" });
+    }
+  }
+);
 
 // Register a new restaurant
 router.post("/restaurant/register", async (req, res) => {
