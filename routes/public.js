@@ -50,6 +50,22 @@ router.post("/order", async (req, res) => {
     // Save the order to the database
     await order.save();
     
+
+// Delete an order by ID
+router.delete("/order/:id", async (req, res) => {
+  try {
+    const order = await Order.findByIdAndDelete(req.params.id);
+    if (!order) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+    res.json({ message: "Order deleted successfully" });
+  } catch (error) {
+    console.error("❌ Error deleting order:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+
 // Assuming order object is already saved and you have access to tableNumber, items, total
 try {
   await axios.post("http://localhost:5001/print-order", {

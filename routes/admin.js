@@ -4,7 +4,7 @@ const jwt = require("jsonwebtoken");
 const mongoose = require("mongoose");
 const Restaurant = require("../models/Restaurant");
 const MenuItem = require("../models/MenuItem");
-const Order = require("../models/Order");  // Order model import
+const Order = require("../models/Order");  
 const auth = require("../middleware/auth");
 const OrderHistory = require("../models/OrderHistory");
 const { route } = require("./public");
@@ -179,6 +179,19 @@ router.post("/login", async (req, res) => {
   res.json({ token, restaurant });
 });
 
+router.delete("/orders/:id", auth, async (req, res) => {
+  try {
+    const deletedOrder = await Order.findByIdAndDelete(req.params.id);
+    if (!deletedOrder) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+    res.json({ message: "Order deleted successfully" });
+  } catch (error) {
+    console.error("Error deleting order:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
 router.get("/:id/menu", auth, async (req, res) => {
     if (req.params.id !== req.restaurantId)
       return res.status(403).json({ message: "Forbidden" });
@@ -229,8 +242,6 @@ router.get("/:id/orders", auth, async (req, res) => {
     res.status(500).json({ message: "Failed to fetch orders", error: err.message });
   }
 });
-
-// ✅ API to Clear Table and Save Orders to History
 
 // ✅ Correct API Route
 router.post("/clearTable/:tableNumber", async (req, res) => {
