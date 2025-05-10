@@ -28,7 +28,48 @@ router.get("/:restaurantId/details", async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 });
+router.post('/order-history', async (req, res) => {
+  const { orderItems, totalAmount, tableNumber, restaurantId, invoiceNumber } = req.body;
 
+  console.log("Received Order Data:", req.body);  // Debugging log
+
+  try {
+    // Validate incoming data
+    if (!orderItems || orderItems.length === 0) {
+      return res.status(400).json({ message: 'No items in the order' });
+    }
+    if (!totalAmount || !tableNumber || !restaurantId || !invoiceNumber) {
+      return res.status(400).json({ message: 'Missing required fields' });
+    }
+
+    // No need to fetch MenuItem data as the frontend is sending name, quantity, price directly
+    const formattedOrderItems = orderItems.map(item => ({
+      name: item.name,
+      quantity: item.quantity,
+      price: item.price,
+    }));
+
+    // Create a new order history entry
+    const orderHistory = new OrderHistory({
+      restaurantId,
+      invoiceNumber,
+      totalAmount,
+      orderItems: formattedOrderItems,
+      tableNumber,
+    });
+
+    // Save the order to the database
+    await orderHistory.save();
+
+    res.status(200).json({
+      message: 'Order history saved successfully',
+      orderHistory,
+    });
+  } catch (error) {
+    console.error("Error saving order history:", error);
+    res.status(500).json({ message: 'Error saving order history', error: error.message });
+  }
+});
 
 // GET all offers for a restaurant
 router.get("/:restaurantId/offers", async (req, res) => {
