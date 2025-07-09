@@ -1,11 +1,12 @@
 const mongoose = require("mongoose");
 
-const restaurantSchema = new mongoose.Schema({
-  name: String,
-  email: String,
-  passwordHash: String,
-  logo: String,
-  address: String,
-});
+const RestaurantSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  email: { type: String, required: true, unique: true },
+  password: { type: String, required: true },
+  logo: { type: String },
+  address: { type: String, required: true },
+  proFeatures: { type: Boolean, default: false }, // ✅ Add this line
+}, { timestamps: true });
 
-module.exports = mongoose.model("Restaurant", restaurantSchema);
+module.exports = mongoose.model("Restaurant", RestaurantSchema);

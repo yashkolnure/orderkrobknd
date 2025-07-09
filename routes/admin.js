@@ -15,6 +15,14 @@ const router = express.Router();
 // Static predefined categories
 const categories = ["Pizza", "Main Course", "Desserts", "Beverages"];
 
+router.get('/pro-features', async (req, res) => {
+  try {
+    const data = await Restaurant.find({}, { proFeatures: 1, _id: 0 }); // only proFeatures field
+    res.json(data); // returns an array of objects: [{ proFeatures: true }, { proFeatures: false }, ...]
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch data' });
+  }
+});
 
 router.get("/:restaurantId/details", async (req, res) => {
   try {
@@ -130,7 +138,7 @@ router.delete(
 // Register a new restaurant
 router.post("/restaurant/register", async (req, res) => {
   try {
-      const { name, email, password, logo, address } = req.body;
+      const { name, email, password, logo, address, proFeatures } = req.body;
 
       // Check if email is already registered
       const existingRestaurant = await Restaurant.findOne({ email });
@@ -145,9 +153,10 @@ router.post("/restaurant/register", async (req, res) => {
       const newRestaurant = new Restaurant({
           name,
           email,
-          passwordHash,
+          password: passwordHash,
           logo,
           address,
+          proFeatures: proFeatures,
       });
 
       await newRestaurant.save();
@@ -159,6 +168,22 @@ router.post("/restaurant/register", async (req, res) => {
   }
 });
 
+// Bulk Insert Route
+router.post('/bulk', async (req, res) => {
+  try {
+    const menuItems = req.body;
+
+    if (!Array.isArray(menuItems)) {
+      return res.status(400).json({ message: "Invalid data format. Expected an array." });
+    }
+
+    await MenuItem.insertMany(menuItems);
+    res.status(200).json({ message: "Menu items uploaded successfully!" });
+  } catch (error) {
+    console.error("Bulk upload error:", error);
+    res.status(500).json({ message: "Server error during bulk upload" });
+  }
+});
 
 // Route to fetch all categories (static list)
 router.get("/:restaurantId/categories", (req, res) => {
