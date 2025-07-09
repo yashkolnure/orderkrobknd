@@ -228,22 +228,56 @@ router.get("/:restaurantId/categories", (req, res) => {
       res.status(500).json({ message: "Failed to fetch menu items" });
     }
   });
-
-// Admin Login
+  
 router.post("/login", async (req, res) => {
-  const { email, password } = req.body;
-  const restaurant = await Restaurant.findOne({ email });
-  if (!restaurant) return res.status(400).json({ message: "Restaurant not found" });
+  try {
+    const { email, password } = req.body;
+    console.log("Incoming login:", email, password);
 
-  const isMatch = await bcrypt.compare(password, restaurant.passwordHash);
-  if (!isMatch) return res.status(400).json({ message: "Incorrect password" });
+    if (!email || !password) {
+      console.log("Missing email or password");
+      return res.status(400).json({ message: "Email and password are required" });
+    }
 
-  const token = jwt.sign({ restaurantId: restaurant._id }, process.env.JWT_SECRET, {
-    expiresIn: "7d",
-  });
+    const restaurant = await Restaurant.findOne({ email });
+    console.log("Restaurant found:", restaurant);
 
-  res.json({ token, restaurant });
+    if (!restaurant) {
+      console.log("Restaurant not found");
+      return res.status(400).json({ message: "Restaurant not found" });
+    }
+
+    if (!restaurant.passwordHash) {
+      console.log("No passwordHash found");
+      return res.status(500).json({ message: "Password is missing in database" });
+    }
+
+    console.log("Comparing passwords...");
+    const isMatch = await bcrypt.compare(password, restaurant.passwordHash);
+    console.log("Password match result:", isMatch);
+
+    if (!isMatch) {
+      console.log("Password mismatch");
+      return res.status(400).json({ message: "Incorrect password" });
+    }
+
+    console.log("Creating token...");
+    const token = jwt.sign(
+      { restaurantId: restaurant._id },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    console.log("Login successful");
+    res.json({ token, restaurant });
+
+  } catch (error) {
+    console.error("Unexpected error:", error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
 });
+
+
 
 router.delete("/orders/:id", auth, async (req, res) => {
   try {
