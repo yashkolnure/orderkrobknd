@@ -134,39 +134,40 @@ router.delete(
     }
   }
 );
-
 // Register a new restaurant
 router.post("/restaurant/register", async (req, res) => {
   try {
-      const { name, email, password, logo, address, proFeatures } = req.body;
+    const { name, email, password, logo, address, proFeatures } = req.body;
 
-      // Check if email is already registered
-      const existingRestaurant = await Restaurant.findOne({ email });
-      if (existingRestaurant) {
-          return res.status(400).json({ message: "Email already in use" });
-      }
+    // Check if email is already registered
+    const existingRestaurant = await Restaurant.findOne({ email });
+    if (existingRestaurant) {
+      return res.status(400).json({ message: "Email already in use" });
+    }
 
-      // Hash password
-      const passwordHash = await bcrypt.hash(password, 10);
+    // Hash password
+    const passwordHash = await bcrypt.hash(password, 10);
 
-      // Create new restaurant entry
-      const newRestaurant = new Restaurant({
-          name,
-          email,
-          password: passwordHash,
-          logo,
-          address,
-          proFeatures: proFeatures,
-      });
+    // Create new restaurant entry
+    const newRestaurant = new Restaurant({
+      name,
+      email,
+      passwordHash,   // ✅ Correct key name here
+      logo,
+      address,
+      proFeatures: proFeatures || false,  // Optional: default to false if not provided
+    });
 
-      await newRestaurant.save();
+    await newRestaurant.save();
 
-      res.status(201).json({ message: "Restaurant registered successfully", restaurant: newRestaurant });
+    res.status(201).json({ message: "Restaurant registered successfully", restaurant: newRestaurant });
+
   } catch (error) {
-      console.error("Error registering restaurant:", error);
-      res.status(500).json({ message: "Server error" });
+    console.error("Error registering restaurant:", error);
+    res.status(500).json({ message: "Server error" });
   }
 });
+
 
 // Bulk Insert Route
 router.post('/bulk', async (req, res) => {
