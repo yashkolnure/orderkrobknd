@@ -79,6 +79,29 @@ router.post('/order-history', async (req, res) => {
   }
 });
 
+
+// Update Menu Item
+router.put("/:restaurantId/menu/:itemId", auth, async (req, res) => {
+  try {
+    const { restaurantId, itemId } = req.params;
+    const updatedItem = await MenuItem.findOneAndUpdate(
+      { _id: itemId, restaurantId },
+      req.body,
+      { new: true }
+    );
+
+    if (!updatedItem) {
+      return res.status(404).json({ message: "Item not found" });
+    }
+
+    res.json(updatedItem);
+  } catch (err) {
+    console.error("Error updating item:", err);
+    res.status(500).json({ message: "Update failed" });
+  }
+});
+
+
 // GET all offers for a restaurant
 router.get("/:restaurantId/offers", async (req, res) => {
   try {
