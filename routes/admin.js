@@ -24,6 +24,58 @@ router.get('/pro-features', async (req, res) => {
   }
 });
 
+
+// GET all restaurants
+router.get("/restaurants", async (req, res) => {
+  try {
+    const data = await Restaurant.find().sort({ createdAt: -1 });
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ message: "Failed to fetch restaurants" });
+  }
+});
+
+// ADD new restaurant
+router.post("/restaurants", async (req, res) => {
+  try {
+    const { name, email, password, address, logo, contact } = req.body;
+    const existing = await Restaurant.findOne({ email });
+    if (existing) return res.status(400).json({ message: "Email already exists" });
+
+    const passwordHash = await bcrypt.hash(password, 10);
+    const restaurant = new Restaurant({ name, email, passwordHash, address, logo, contact });
+    await restaurant.save();
+    res.status(201).json(restaurant);
+  } catch (err) {
+    res.status(500).json({ message: "Error creating restaurant" });
+  }
+});
+
+// UPDATE restaurant
+router.put("/restaurants/:id", async (req, res) => {
+  try {
+    const updates = { ...req.body };
+    if (updates.password) {
+      updates.passwordHash = await bcrypt.hash(updates.password, 10);
+      delete updates.password;
+    }
+    const updated = await Restaurant.findByIdAndUpdate(req.params.id, updates, { new: true });
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ message: "Update failed" });
+  }
+});
+
+// DELETE restaurant
+router.delete("/restaurants/:id", async (req, res) => {
+  try {
+    await Restaurant.findByIdAndDelete(req.params.id);
+    res.json({ message: "Deleted successfully" });
+  } catch (err) {
+    res.status(500).json({ message: "Delete failed" });
+  }
+});
+
 router.get("/:restaurantId/details", async (req, res) => {
   try {
     const restaurant = await Restaurant.findById(req.params.restaurantId);
@@ -160,7 +212,7 @@ router.delete(
 // Register a new restaurant
 router.post("/restaurant/register", async (req, res) => {
   try {
-    const { name, email, password, logo, address, proFeatures } = req.body;
+    const { name, email, password, logo, address, proFeatures, contact } = req.body;
 
     // Check if email is already registered
     const existingRestaurant = await Restaurant.findOne({ email });

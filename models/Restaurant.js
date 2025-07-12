@@ -6,6 +6,7 @@ const RestaurantSchema = new mongoose.Schema({
   passwordHash: { type: String, required: true },   // ✅ Fix here
   logo: { type: String },
   address: { type: String, required: true },
+  contact: { type: String }, // ✅ Add this line
   proFeatures: { type: Boolean, default: false },
 }, { timestamps: true });
 
