@@ -18,7 +18,13 @@ console.log("✅ .env loaded");
 const app = express();
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: 'https://menu-coral-tau.vercel.app', // your frontend domain
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+app.options('*', cors());
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
