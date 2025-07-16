@@ -1,16 +1,54 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const multer = require("multer");
 const mongoose = require("mongoose");
 const Restaurant = require("../models/Restaurant");
 const MenuItem = require("../models/MenuItem");
+const fs = require("fs");
+const axios = require("axios");
 const Order = require("../models/Order");  
 const auth = require("../middleware/auth");
 const OrderHistory = require("../models/OrderHistory");
 const { route } = require("./public");
 const Offer = require("../models/Offer");   
+const upload = multer({ dest: "uploads/" }); // folder to store images temporarily
+
 
 const router = express.Router();
+
+// 🔐 WordPress Credentials
+const WP_USERNAME = "yashkolnure58@gmail.com";
+const WP_APP_PASSWORD = "05mq iTLF UvJU dyaz 7KxQ 8pyc";
+const WP_SITE_URL = "https://website.avenirya.com";
+
+// 📤 Upload image to WordPress and return URL
+
+const FormData = require("form-data");
+
+router.post("/upload-image", upload.single("image"), async (req, res) => {
+  try {
+    const fileStream = fs.createReadStream(req.file.path);
+
+    const form = new FormData();
+    form.append("file", fileStream, req.file.originalname);
+
+    const response = await axios.post(`${WP_SITE_URL}/wp-json/wp/v2/media`, form, {
+      headers: {
+        ...form.getHeaders(),
+        Authorization: "Basic " + Buffer.from(`${WP_USERNAME}:${WP_APP_PASSWORD}`).toString("base64"),
+      },
+    });
+
+    fs.unlinkSync(req.file.path); // cleanup temp file
+
+    res.json({ imageUrl: response.data.source_url });
+  } catch (err) {
+    console.error("Upload error:", err.response?.data || err.message);
+    res.status(500).json({ error: "Failed to upload image" });
+  }
+});
+
 
 // Static predefined categories
 const categories = ["Pizza", "Main Course", "Desserts", "Beverages"];
