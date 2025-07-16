@@ -19,9 +19,9 @@ const app = express();
 
 // Middleware
 app.use(cors({
-  origin: 'https://menu-coral-tau.vercel.app', // your frontend domain
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  origin: "https://menu-coral-tau.vercel.app",
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  credentials: true
 }));
 app.options('*', cors());
 
