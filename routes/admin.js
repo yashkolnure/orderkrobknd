@@ -209,6 +209,7 @@ router.delete(
     }
   }
 );
+
 // Register a new restaurant
 router.post("/restaurant/register", async (req, res) => {
   try {
