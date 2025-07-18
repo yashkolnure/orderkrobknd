@@ -254,6 +254,23 @@ router.post("/restaurant/register", async (req, res) => {
   }
 });
 
+// GET all restaurants for a specific subadmin
+router.get("/restaurant/all", async (req, res) => {
+  try {
+    const { subadmin_id } = req.query;
+
+    if (!subadmin_id) {
+      return res.status(400).json({ message: "Missing subadmin_id" });
+    }
+
+    const restaurants = await Restaurant.find({ subadmin_id });
+
+    res.status(200).json(restaurants);
+  } catch (err) {
+    console.error("Error fetching restaurants:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
 
 // Bulk Insert Route
 router.post('/bulk', async (req, res) => {
