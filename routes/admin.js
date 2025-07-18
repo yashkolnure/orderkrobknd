@@ -212,7 +212,7 @@ router.delete(
 // Register a new restaurant
 router.post("/restaurant/register", async (req, res) => {
   try {
-    const { name, email, password, logo, address, proFeatures, contact } = req.body;
+    const { name, email, password, logo, address, proFeatures, contact, subadmin_id } = req.body;
 
     // Check if email is already registered
     const existingRestaurant = await Restaurant.findOne({ email });
@@ -223,19 +223,30 @@ router.post("/restaurant/register", async (req, res) => {
     // Hash password
     const passwordHash = await bcrypt.hash(password, 10);
 
-    // Create new restaurant entry
-    const newRestaurant = new Restaurant({
+    // Build restaurant object
+    const newRestaurantData = {
       name,
       email,
-      passwordHash,   // ✅ Correct key name here
+      passwordHash,
       logo,
       address,
-      proFeatures: proFeatures || false,  // Optional: default to false if not provided
-    });
+      contact,
+      proFeatures: proFeatures || false,
+    };
 
+    // Conditionally include subadmin_id if provided
+    if (subadmin_id) {
+      newRestaurantData.subadmin_id = subadmin_id;
+    }
+
+    // Create and save restaurant
+    const newRestaurant = new Restaurant(newRestaurantData);
     await newRestaurant.save();
 
-    res.status(201).json({ message: "Restaurant registered successfully", restaurant: newRestaurant });
+    res.status(201).json({
+      message: "Restaurant registered successfully",
+      restaurant: newRestaurant,
+    });
 
   } catch (error) {
     console.error("Error registering restaurant:", error);
