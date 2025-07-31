@@ -18,21 +18,7 @@ console.log("✅ .env loaded");
 const app = express();
 
 // Middleware
-
-// ✅ Manual CORS Headers (DO NOT use cors() middleware on Vercel)
-app.use((req, res, next) => {
-  res.setHeader("Access-Control-Allow-Origin", "https://menu-coral-tau.vercel.app");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  res.setHeader("Access-Control-Allow-Credentials", "true");
-
-  if (req.method === "OPTIONS") {
-    return res.sendStatus(200); // Preflight request
-  }
-
-  next();
-});
-
+app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
