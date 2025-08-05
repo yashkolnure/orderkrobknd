@@ -20,7 +20,11 @@ const app = express();
 
 
 // ✅ CORS Configuration
-const allowedOrigins = ['https://menu-two-puce.vercel.app'];
+const allowedOrigins = [
+  'https://menu-two-puce.vercel.app',
+  'https://menu-coral-tau.vercel.app'
+];
+
 
 app.use(cors({
   origin: function (origin, callback) {
