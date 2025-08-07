@@ -22,7 +22,8 @@ const app = express();
 // ✅ CORS Configuration
 const allowedOrigins = [
   'https://menu-two-puce.vercel.app',
-  'https://menu-coral-tau.vercel.app'
+  'https://menu-coral-tau.vercel.app',
+  'http://localhost:3000', // for local development
 ];
 
 
