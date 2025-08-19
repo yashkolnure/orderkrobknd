@@ -5,15 +5,16 @@ const mongoose = require("mongoose");
 const Restaurant = require("../models/Restaurant");
 const MenuItem = require("../models/MenuItem");
 const Order = require("../models/Order");  
+const { verifyAdmin } = require("../middleware/verifyAdmin");
+const { generateJWT } = require("../utils/generateJWT");
 const auth = require("../middleware/auth");
+const Agency = require("../models/Agency");
 const OrderHistory = require("../models/OrderHistory");
 const { route } = require("./public");
 const Offer = require("../models/Offer");   
 
 const router = express.Router();
 
-// Static predefined categories
-const categories = ["Pizza", "Main Course", "Desserts", "Beverages"];
 
 router.get('/pro-features', async (req, res) => {
   try {
@@ -38,19 +39,55 @@ router.get("/restaurants", async (req, res) => {
 // ADD new restaurant
 router.post("/restaurants", async (req, res) => {
   try {
-    const { name, email, password, address, logo, contact } = req.body;
-    const existing = await Restaurant.findOne({ email });
-    if (existing) return res.status(400).json({ message: "Email already exists" });
+    const { name, email, password, address, logo, contact, membership_level } = req.body;
 
+    // ✅ Validate required fields
+    if (!name || !email || !password || !address || !logo || !contact || !membership_level) {
+      return res.status(400).json({ message: "All fields including are required" });
+    }
+ 
+    // ✅ Check if email already exists
+    const existing = await Restaurant.findOne({ email });
+    if (existing) {
+      return res.status(400).json({ message: "Email already exists" });
+    }
+
+    // ✅ Hash password
     const passwordHash = await bcrypt.hash(password, 10);
-    const restaurant = new Restaurant({ name, email, passwordHash, address, logo, contact });
+
+    // ✅ Create restaurant with provided membership_level
+    const restaurant = new Restaurant({
+      name,
+      email,
+      passwordHash,
+      address,
+      logo,
+      contact,
+      membership_level
+    });
+
     await restaurant.save();
+
     res.status(201).json(restaurant);
   } catch (err) {
+    console.error(err);
     res.status(500).json({ message: "Error creating restaurant" });
   }
 });
 
+// Backend route example
+router.get("/restaurants/check-email", async (req, res) => {
+  try {
+    const { email } = req.query;
+    if (!email) return res.status(400).json({ message: "Email is required" });
+
+    const existing = await Restaurant.findOne({ email });
+    res.json({ exists: !!existing });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
 // UPDATE restaurant
 router.put("/restaurants/:id", async (req, res) => {
   try {
@@ -213,7 +250,7 @@ router.delete(
 // Register a new restaurant
 router.post("/restaurant/register", async (req, res) => {
   try {
-    const { name, email, password, logo, address, proFeatures, contact, subadmin_id } = req.body;
+    const { name, email, password, logo, address, proFeatures, contact, subadmin_id, membership_level } = req.body;
 
     // Check if email is already registered
     const existingRestaurant = await Restaurant.findOne({ email });
@@ -233,6 +270,7 @@ router.post("/restaurant/register", async (req, res) => {
       address,
       contact,
       proFeatures: proFeatures || false,
+      membership_level,
     };
 
     // Conditionally include subadmin_id if provided
@@ -482,6 +520,118 @@ router.get("/:restaurantId/order-history", auth, async (req, res) => {
 
     // Optional: return error as JSON too
     res.status(500).json({ message: "Error fetching order history", error: err.message });
+  }
+});
+
+router.post("/register-agency", async (req, res) => {
+  try {
+    const { agencyName, email, password, contactNumber, address, agencyLevel } = req.body;
+
+    console.log("📩 Register Agency Request:", req.body);
+
+    const existing = await Agency.findOne({ email });
+    if (existing) {
+      return res.status(400).json({ message: "Agency already exists" });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const agency = new Agency({
+      agencyName,
+      email,
+      password: hashedPassword,
+      contactNumber,
+      address,
+      agencyLevel, // now this is defined
+    });
+
+    await agency.save();
+
+    console.log("✅ Agency Saved:", agency);
+
+    res.status(201).json({ message: "Agency registered successfully" });
+  } catch (err) {
+    console.error("❌ Register Error:", err);
+    res.status(500).json({ message: "Error registering agency", error: err.message });
+  }
+});
+
+router.post("/agency-login", async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ message: "All fields are required" });
+    }
+
+    const agency = await Agency.findOne({ email });
+    if (!agency) {
+      return res.status(404).json({ message: "Agency not found" });
+    }
+
+    const isMatch = await bcrypt.compare(password, agency.password);
+    if (!isMatch) {
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
+
+    res.status(200).json({
+      message: "Login successful",
+      agency: {
+        id: agency._id,
+        name: agency.agencyName,
+        email: agency.email,
+        agencyLevel: agency.agencyLevel, // <-- add this
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+// ✅ Check if agency email exists
+router.get("/agency/check-email", async (req, res) => {
+  try {
+    const { email } = req.query;
+    if (!email) return res.status(400).json({ message: "Email is required" });
+
+    const existing = await Agency.findOne({ email });
+    res.json({ exists: !!existing });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Error checking email" });
+  }
+});
+
+
+
+// Agency/Admin impersonates a restaurant
+router.post("/agency-login-restaurant/:restaurantId", verifyAdmin, async (req, res) => {
+  try {
+    const { restaurantId } = req.params;
+
+    const restaurant = await Restaurant.findById(restaurantId);
+    if (!restaurant) return res.status(404).json({ message: "Restaurant not found" });
+
+    // Generate impersonation JWT
+    const token = generateJWT({
+      id: restaurant._id,
+      email: restaurant.email,
+      name: restaurant.name,
+      role: "restaurant",
+      impersonatedBy: req.user._id, // which admin/agency triggered this
+    });
+
+    res.status(200).json({
+      message: "Impersonation login successful",
+      token,
+      restaurant: {
+        _id: restaurant._id,
+        name: restaurant.name,
+        email: restaurant.email,
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error", error: err.message });
   }
 });
 
