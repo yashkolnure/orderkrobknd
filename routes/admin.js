@@ -636,23 +636,27 @@ router.post("/agency-login-restaurant/:restaurantId", verifyAdmin, async (req, r
   }
 });
 
-// ⚠️ Not secure, but works if your page is already server-protected
-router.post("/superadmin-login-restaurant/:restaurantId", async (req, res) => {
+
+// ✅ Super Admin impersonates a restaurant
+router.post("/superadmin-login-restaurant/:restaurantId", verifySuperAdmin, async (req, res) => {
   try {
     const { restaurantId } = req.params;
+
     const restaurant = await Restaurant.findById(restaurantId);
     if (!restaurant) return res.status(404).json({ message: "Restaurant not found" });
 
+    // Create restaurant JWT (what your dashboard expects)
     const token = generateJWT({
       id: restaurant._id,
       email: restaurant.email,
       name: restaurant.name,
       role: "restaurant",
-      impersonatedBy: "superadmin",
+      impersonatedBy: req.user.id,       // who triggered
+      impersonatedByRole: "superadmin",  // clarity
     });
 
-    res.status(200).json({
-      message: "Superadmin impersonation successful",
+    return res.status(200).json({
+      message: "Super Admin impersonation login successful",
       token,
       restaurant: {
         _id: restaurant._id,
@@ -661,8 +665,8 @@ router.post("/superadmin-login-restaurant/:restaurantId", async (req, res) => {
       },
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Server error", error: err.message });
+    console.error("superadmin-login-restaurant error:", err);
+    return res.status(500).json({ message: "Server error" });
   }
 });
 
