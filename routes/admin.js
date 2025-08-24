@@ -12,6 +12,7 @@ const Agency = require("../models/Agency");
 const OrderHistory = require("../models/OrderHistory");
 const { route } = require("./public");
 const Offer = require("../models/Offer");   
+const verifySuperAdmin = require("../middleware/verifySuperAdmin");
 
 const router = express.Router();
 
@@ -622,6 +623,36 @@ router.post("/agency-login-restaurant/:restaurantId", verifyAdmin, async (req, r
 
     res.status(200).json({
       message: "Impersonation login successful",
+      token,
+      restaurant: {
+        _id: restaurant._id,
+        name: restaurant.name,
+        email: restaurant.email,
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
+// ⚠️ Not secure, but works if your page is already server-protected
+router.post("/superadmin-login-restaurant/:restaurantId", async (req, res) => {
+  try {
+    const { restaurantId } = req.params;
+    const restaurant = await Restaurant.findById(restaurantId);
+    if (!restaurant) return res.status(404).json({ message: "Restaurant not found" });
+
+    const token = generateJWT({
+      id: restaurant._id,
+      email: restaurant.email,
+      name: restaurant.name,
+      role: "restaurant",
+      impersonatedBy: "superadmin",
+    });
+
+    res.status(200).json({
+      message: "Superadmin impersonation successful",
       token,
       restaurant: {
         _id: restaurant._id,
