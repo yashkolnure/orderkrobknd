@@ -9,6 +9,7 @@ const { verifyAdmin } = require("../middleware/verifyAdmin");
 const { generateJWT } = require("../utils/generateJWT");
 const auth = require("../middleware/auth");
 const Agency = require("../models/Agency");
+const verifyAgency = require("../middleware/verifyAgency");
 const OrderHistory = require("../models/OrderHistory");
 const { route } = require("./public");
 const Offer = require("../models/Offer");   
@@ -575,51 +576,51 @@ router.post("/agency-login", async (req, res) => {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
+    // ✅ Create JWT token
+    const token = jwt.sign(
+      { id: agency._id, email: agency.email, agencyLevel: agency.agencyLevel },
+      process.env.JWT_SECRET,
+      { expiresIn: "1d" }
+    );
+
     res.status(200).json({
       message: "Login successful",
+      token,
       agency: {
         id: agency._id,
         name: agency.agencyName,
         email: agency.email,
-        agencyLevel: agency.agencyLevel, // <-- add this
+        agencyLevel: agency.agencyLevel,
       },
     });
   } catch (err) {
     res.status(500).json({ message: "Server error", error: err.message });
   }
 });
-// ✅ Check if agency email exists
-router.get("/agency/check-email", async (req, res) => {
-  try {
-    const { email } = req.query;
-    if (!email) return res.status(400).json({ message: "Email is required" });
-
-    const existing = await Agency.findOne({ email });
-    res.json({ exists: !!existing });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: "Error checking email" });
-  }
-});
 
 
-
-// Agency/Admin impersonates a restaurant
-router.post("/agency-login-restaurant/:restaurantId", verifyAdmin, async (req, res) => {
+// Agency impersonates a restaurant
+router.post("/agency-login-restaurant/:restaurantId", verifyAgency, async (req, res) => {
   try {
     const { restaurantId } = req.params;
 
     const restaurant = await Restaurant.findById(restaurantId);
-    if (!restaurant) return res.status(404).json({ message: "Restaurant not found" });
+    if (!restaurant) {
+      return res.status(404).json({ message: "Restaurant not found" });
+    }
 
-    // Generate impersonation JWT
-    const token = generateJWT({
-      id: restaurant._id,
-      email: restaurant.email,
-      name: restaurant.name,
-      role: "restaurant",
-      impersonatedBy: req.user._id, // which admin/agency triggered this
-    });
+    // Generate impersonation JWT (restaurant user)
+const token = jwt.sign(
+  {
+    restaurantId: restaurant._id,
+    email: restaurant.email,
+    name: restaurant.name,
+    role: "restaurant",
+    impersonatedBy: req.user._id, // only present in impersonation flow
+  },
+  process.env.JWT_SECRET,
+  { expiresIn: "7d" }
+);
 
     res.status(200).json({
       message: "Impersonation login successful",
