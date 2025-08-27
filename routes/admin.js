@@ -672,4 +672,42 @@ router.post("/superadmin-login-restaurant/:restaurantId", verifySuperAdmin, asyn
 });
 
 
+
+// PUT -> Upgrade Membership
+router.put("/upgrade-membership/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { newLevel } = req.body;
+
+    // check valid level
+    if (![1, 2, 3].includes(newLevel)) {
+      return res.status(400).json({ message: "Invalid membership level" });
+    }
+
+    const restaurant = await Restaurant.findById(id);
+    if (!restaurant) {
+      return res.status(404).json({ message: "Restaurant not found" });
+    }
+
+    // prevent downgrade or same level
+    if (newLevel <= restaurant.membership_level) {
+      return res
+        .status(400)
+        .json({ message: "Cannot downgrade or keep same level" });
+    }
+
+    // update
+    restaurant.membership_level = newLevel;
+    await restaurant.save();
+
+    res.json({
+      message: "Membership upgraded successfully",
+      restaurant,
+    });
+  } catch (err) {
+    console.error("Upgrade error:", err);
+    res.status(500).json({ message: "Server error", error: err.message });
+  }
+});
+
 module.exports = router;
