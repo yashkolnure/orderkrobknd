@@ -5,6 +5,7 @@ const mongoose = require("mongoose");
 const Restaurant = require("../models/Restaurant");
 const MenuItem = require("../models/MenuItem");
 const Order = require("../models/Order");  
+const CustomFields = require("../models/CustomFields");
 const { verifyAdmin } = require("../middleware/verifyAdmin");
 const { generateJWT } = require("../utils/generateJWT");
 const auth = require("../middleware/auth");
@@ -709,5 +710,49 @@ router.put("/upgrade-membership/:id", async (req, res) => {
     res.status(500).json({ message: "Server error", error: err.message });
   }
 });
+
+
+router.post("/custom-fields", async (req, res) => {
+  try {
+    const { restaurantId, instagram, facebook, website, contact, customLine } = req.body;
+
+    if (!restaurantId) {
+      return res.status(400).json({ message: "restaurantId is required" });
+    }
+
+    const fields = await CustomFields.findOneAndUpdate(
+      { restaurantId },
+      { instagram, facebook, website, contact, customLine },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    );
+
+    res.json(fields);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to save custom fields" });
+  }
+});
+
+/**
+ * Get custom fields by restaurantId
+ * ?restaurantId=xxx
+ */
+router.get("/custom-fields", async (req, res) => {
+  try {
+    const { restaurantId } = req.query;
+    if (!restaurantId) {
+      return res.status(400).json({ message: "restaurantId is required" });
+    }
+
+    const fields = await CustomFields.findOne({ restaurantId });
+    if (!fields) return res.status(404).json({ message: "No fields found" });
+
+    res.json(fields);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Failed to fetch custom fields" });
+  }
+});
+
 
 module.exports = router;
