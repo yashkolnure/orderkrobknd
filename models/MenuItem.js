@@ -8,6 +8,7 @@ const menuItemSchema = new mongoose.Schema({
   price: { type: Number },
   image: { type: String },
   restaurantId: { type: mongoose.Schema.Types.ObjectId, ref: "Restaurant" },
+  inStock: { type: Boolean, default: true } // ✅ NEW FIELD
 });
 
 module.exports = mongoose.model('MenuItem', menuItemSchema);

@@ -25,6 +25,8 @@ const ItemSchema = new mongoose.Schema({
   imageUrl: {
     type: String, // optional image
   },
+  
+  inStock: { type: Boolean, default: true } // ✅ NEW FIELD
 });
 
 module.exports = mongoose.model("Item", ItemSchema);
