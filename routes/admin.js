@@ -6,6 +6,8 @@ const Restaurant = require("../models/Restaurant");
 const MenuItem = require("../models/MenuItem");
 const Order = require("../models/Order");  
 const CustomFields = require("../models/CustomFields");
+const fs = require("fs");
+const multer = require('multer');
 const { verifyAdmin } = require("../middleware/verifyAdmin");
 const { generateJWT } = require("../utils/generateJWT");
 const auth = require("../middleware/auth");
@@ -15,9 +17,12 @@ const OrderHistory = require("../models/OrderHistory");
 const { route } = require("./public");
 const Offer = require("../models/Offer");   
 const verifySuperAdmin = require("../middleware/verifySuperAdmin");
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 const router = express.Router();
 
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
 router.get('/pro-features', async (req, res) => {
   try {
@@ -28,7 +33,19 @@ router.get('/pro-features', async (req, res) => {
   }
 });
 
+// Set storage options
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, 'uploads/'); // folder where images will be saved
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, uniqueSuffix + '-' + file.originalname);
+  }
+});
 
+// Create upload instance
+const upload = multer({ storage: storage });
 // GET all restaurants
 router.get("/restaurants", async (req, res) => {
   try {
@@ -753,6 +770,62 @@ router.get("/custom-fields", async (req, res) => {
     res.status(500).json({ message: "Failed to fetch custom fields" });
   }
 });
+
+router.post("/menu-extract", upload.single("file"), async (req, res) => {
+  try {
+    const { restaurantId } = req.body; // <--- dynamic restaurantId
+    if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+    if (!restaurantId) return res.status(400).json({ error: "Restaurant ID is required" });
+
+    const fileData = fs.readFileSync(req.file.path);
+    const base64Data = fileData.toString("base64");
+
+    const prompt = `
+You are a professional data extractor and formatter.
+
+I will provide you with an image of a restaurant menu. Your task is to help me extract all the menu items and convert them into valid JSON format for uploading into a database.
+
+Here are the instructions:
+1. Each menu item should be represented as a JSON object with the following fields:
+- name: The name of the menu item (string)
+- category: The category of the item (e.g., NON VEG STARTERS, PURE VEG, BREADS, RICE, VEG STARTERS) (string)
+- description: A short descriptive line about the item (you can create it if needed) (string)
+- price: The item price in numbers (use the FULL price if multiple sizes are shown; if possible, list multiple sizes as separate objects)
+- image: Use "data:image/webp;base64,..." as a placeholder (string)
+- restaurantId: Use "${restaurantId}" as the placeholder value (string)
+
+2. Do not skip any items from the menu. Even if an item has multiple sizes (Full/Half/Quarter), create separate JSON objects for each variant.
+
+3. The final output must be:
+- Pure valid JSON (no explanation, no extra text)
+- An array of objects inside [ ... ]
+- Maintain consistency in fields for all objects.
+
+I will now provide the menu card image. Please extract all items and return the complete JSON.
+`;
+
+    const result = await model.generateContent([
+      prompt,
+      { inlineData: { data: base64Data, mimeType: req.file.mimetype } },
+    ]);
+
+    fs.unlinkSync(req.file.path);
+
+    let json;
+    try {
+      json = JSON.parse(result.response.text());
+    } catch {
+      const match = result.response.text().match(/\[[\s\S]*\]/);
+      json = match ? JSON.parse(match[0]) : { error: "Invalid JSON from AI" };
+    }
+
+    res.json(json);
+  } catch (err) {
+    console.error("Menu Extract Error:", err);
+    res.status(500).json({ error: "Failed to process image" });
+  }
+});
+
 
 
 module.exports = router;

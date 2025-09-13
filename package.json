@@ -3,7 +3,6 @@
   "version": "1.0.0",
   "description": "��#\u0000 \u0000m\u0000e\u0000n\u0000u\u0000b\u0000a\u0000c\u0000k\u0000e\u0000n\u0000d\u0000\r\u0000 \u0000",
   "main": "seedAdmin.js",
-  
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node server.js"
@@ -20,6 +19,7 @@
   },
   "homepage": "https://github.com/yashkolnure/menubackend#readme",
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "axios": "^1.9.0",
     "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
@@ -32,7 +32,7 @@
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.17.1",
     "morgan": "^1.10.1",
-    "multer": "^2.0.1",
+    "multer": "^2.0.2",
     "nodemailer": "^7.0.5",
     "razorpay": "^2.9.6"
   }
