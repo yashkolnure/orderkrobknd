@@ -3,6 +3,7 @@ const mongoose = require("mongoose");
 const orderSchema = new mongoose.Schema({
   restaurantId: { type: mongoose.Schema.Types.ObjectId, ref: "Restaurant" },
   tableNumber: { type: String, required: true }, // Add table number to the order
+  wpno: { type: String }, // Add Customer Wp no to the order
   items: [
     {
       itemId: { type: mongoose.Schema.Types.ObjectId, ref: "MenuItem" },

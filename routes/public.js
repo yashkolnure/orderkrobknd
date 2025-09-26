@@ -11,10 +11,10 @@ router.post("/order", async (req, res) => {
     console.log("📥 Incoming order:", req.body); // <-- Log the incoming order for debugging
 
     // Extract table number and other data from the request body
-    const { restaurantId, tableNumber, items, total } = req.body;
+    const { restaurantId, tableNumber, wpno, items, total } = req.body;
 
     // Validate the order data
-    if (!restaurantId || !tableNumber || !items || !Array.isArray(items) || items.length === 0) {
+    if (!restaurantId || !tableNumber ||  !items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ message: "Invalid order data" });
     }
 
@@ -42,6 +42,7 @@ router.post("/order", async (req, res) => {
       restaurantId,
       tableNumber,  // Include table number in the order
       items: updatedItems,
+      wpno,
       total,
       status: "pending",
       createdAt: new Date(),
