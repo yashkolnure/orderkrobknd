@@ -78,15 +78,7 @@ app.use("/api/admin", adminRoutes);
 app.use("/api", publicRoutes);
 app.post("/api/clearTable/:tableNumber", async (req, res) => {
   try {
-    let { tableNumber } = req.params;
-    tableNumber = Number(tableNumber);
-
-    if (isNaN(tableNumber)) {
-      return res.status(400).json({ message: "Invalid table number format" });
-    }
-
-    console.log(`🔍 Clearing Table: ${tableNumber}`);
-
+    const { tableNumber } = req.params; // keep as string
     const orders = await Order.find({ tableNumber });
 
     if (!orders.length) {

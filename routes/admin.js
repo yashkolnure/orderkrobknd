@@ -11,6 +11,7 @@ const multer = require('multer');
 const { verifyAdmin } = require("../middleware/verifyAdmin");
 const { generateJWT } = require("../utils/generateJWT");
 const auth = require("../middleware/auth");
+const Redirect = require("../models/Redirect");
 const Agency = require("../models/Agency");
 const verifyAgency = require("../middleware/verifyAgency");
 const OrderHistory = require("../models/OrderHistory");
@@ -506,11 +507,19 @@ router.get("/:id/orders", auth, async (req, res) => {
   }
 });
 
-// ✅ Correct API Route
 router.post("/clearTable/:tableNumber", async (req, res) => {
+  const { restaurantId } = req.body;
+  const tableNumber = req.params.tableNumber;
+  console.log("🛠️ Clear Table Request for table:", tableNumber, "restaurant:", restaurantId);
+
+  if (!restaurantId) {
+    return res.status(400).json({ error: "restaurantId is required" });
+  }
+
   try {
-    console.log("🛠️ Clearing table:", req.params.tableNumber);
-    res.json({ message: `Table ${req.params.tableNumber} cleared successfully!` });
+    // Delete all orders for this restaurant and table number (string match)
+    await Order.deleteMany({ restaurantId, tableNumber });
+    res.json({ message: `Table ${tableNumber} cleared successfully!` });
   } catch (error) {
     console.error("❌ Error clearing table:", error);
     res.status(500).json({ error: "Something went wrong" });
@@ -825,6 +834,26 @@ I will now provide the menu card image. Please extract all items and return the 
     res.status(500).json({ error: "Failed to process image" });
   }
 });
+
+// Add a redirect
+router.post("/redirects", async (req, res) => {
+  try {
+    const { from, to } = req.body;
+    const redirect = new Redirect({ from, to });
+    await redirect.save();
+    res.status(201).json({ message: "Redirect created", redirect });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Get all redirects (optional)
+router.get("/redirects", async (req, res) => {
+  const redirects = await Redirect.find();
+  res.json(redirects);
+});
+
+
 
 
 

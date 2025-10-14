@@ -9,6 +9,7 @@ const RestaurantSchema = new mongoose.Schema({
   contact: { type: String },
   membership_level: { type: Number, default: 1 }, 
   subadmin_id: { type: String }, 
+  homeImage: { type: String },
 }, { timestamps: true });
 
 module.exports = mongoose.model("Restaurant", RestaurantSchema);
