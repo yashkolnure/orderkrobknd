@@ -740,7 +740,7 @@ router.put("/upgrade-membership/:id", async (req, res) => {
 
 router.post("/custom-fields", async (req, res) => {
   try {
-    const { restaurantId, instagram, facebook, website, contact, customLine } = req.body;
+    const { restaurantId, instagram, facebook, website, contact, customLine, googleReview } = req.body;
 
     if (!restaurantId) {
       return res.status(400).json({ message: "restaurantId is required" });
@@ -748,7 +748,7 @@ router.post("/custom-fields", async (req, res) => {
 
     const fields = await CustomFields.findOneAndUpdate(
       { restaurantId },
-      { instagram, facebook, website, contact, customLine },
+      { instagram, facebook, website, contact, customLine, googleReview },
       { new: true, upsert: true, setDefaultsOnInsert: true }
     );
 

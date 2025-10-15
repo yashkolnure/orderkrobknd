@@ -12,6 +12,7 @@ const CustomFieldsSchema = new mongoose.Schema({
   website: { type: String, default: "" },
   contact: { type: String, default: "" },
   customLine: { type: String, default: "" },
+  googleReview: { type: String, default: "" },
 });
 
 module.exports = mongoose.model("CustomFields", CustomFieldsSchema);
