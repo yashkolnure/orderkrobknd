@@ -57,6 +57,34 @@ router.get("/restaurants", async (req, res) => {
   }
 });
 
+
+// Update order status (Accept / change status)
+router.put("/:id/orders/:orderId", auth, async (req, res) => {
+  // ensure the authenticated restaurant matches the requested id
+  if (req.params.id !== req.restaurantId) {
+    return res.status(403).json({ message: "Forbidden" });
+  }
+
+  try {
+    const { status } = req.body;
+    if (!status) return res.status(400).json({ message: "status is required" });
+
+    const order = await Order.findOneAndUpdate(
+      { _id: req.params.orderId, restaurantId: req.restaurantId },
+      { $set: { status } },
+      { new: true }
+    );
+
+    if (!order) return res.status(404).json({ message: "Order not found" });
+
+    res.json({ success: true, order });
+  } catch (err) {
+    console.error("Error updating order status:", err);
+    res.status(500).json({ message: "Internal server error", error: err.message });
+  }
+});
+
+
 // ADD new restaurant
 router.post("/restaurants", async (req, res) => {
   try {
