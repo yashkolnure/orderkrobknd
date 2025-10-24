@@ -881,9 +881,10 @@ router.get("/redirects", async (req, res) => {
   res.json(redirects);
 });
 
-// Get restaurant IDs with more than 10 menu items
-router.get("/restaurant-ids-with-many-menus", async (req, res) => {
+// Get restaurants with more than 10 menu items (return id, name, logo, address)
+router.get("/restaurants-with-many-menus", async (req, res) => {
   try {
+    // Step 1: Aggregate menu items to find restaurant IDs with >10 items
     const aggregation = await MenuItem.aggregate([
       {
         $group: {
@@ -893,23 +894,28 @@ router.get("/restaurant-ids-with-many-menus", async (req, res) => {
       },
       {
         $match: {
-          count: { $gt: 10 } // only restaurants with more than 10 menu items
+          count: { $gt: 10 }
         }
       },
       {
-        $project: {
-          _id: 1 // only return restaurant IDs
-        }
+        $project: { _id: 1 }
       }
     ]);
 
     const restaurantIds = aggregation.map(r => r._id);
 
-    res.json({ success: true, restaurantIds });
+    // Step 2: Fetch restaurant details
+    const restaurants = await Restaurant.find(
+      { _id: { $in: restaurantIds } },
+      { name: 1, logo: 1, address: 1 } // only select required fields
+    ).lean();
+
+    res.json({ success: true, restaurants });
   } catch (err) {
-    console.error("Error fetching restaurant IDs:", err);
+    console.error("Error fetching restaurants:", err);
     res.status(500).json({ success: false, message: "Server error" });
   }
 });
+
 
 module.exports = router;
