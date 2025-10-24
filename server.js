@@ -36,6 +36,11 @@ const allowedOrigins = [
   'http://168.231.123.91', // for local development
 ];
 
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*"); // allow all
+  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+  next();
+});
 
 app.use(cors({
   origin: function (origin, callback) {
