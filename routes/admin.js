@@ -881,8 +881,35 @@ router.get("/redirects", async (req, res) => {
   res.json(redirects);
 });
 
+// Get restaurant IDs with more than 10 menu items
+router.get("/restaurant-ids-with-many-menus", async (req, res) => {
+  try {
+    const aggregation = await MenuItem.aggregate([
+      {
+        $group: {
+          _id: "$restaurantId",
+          count: { $sum: 1 }
+        }
+      },
+      {
+        $match: {
+          count: { $gt: 10 } // only restaurants with more than 10 menu items
+        }
+      },
+      {
+        $project: {
+          _id: 1 // only return restaurant IDs
+        }
+      }
+    ]);
 
+    const restaurantIds = aggregation.map(r => r._id);
 
-
+    res.json({ success: true, restaurantIds });
+  } catch (err) {
+    console.error("Error fetching restaurant IDs:", err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+});
 
 module.exports = router;
