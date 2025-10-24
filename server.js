@@ -25,9 +25,10 @@ console.log("✅ .env loaded");
 const app = express();
 
 
-
+app.use(cors());
 
 // ✅ CORS Configuration
+
 const allowedOrigins = [
   'https://menu-two-puce.vercel.app',
   'https://menu-coral-tau.vercel.app',
