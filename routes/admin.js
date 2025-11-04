@@ -88,13 +88,13 @@ router.put("/:id/orders/:orderId", auth, async (req, res) => {
 // ADD new restaurant
 router.post("/restaurants", async (req, res) => {
   try {
-    const { name, email, password, address, logo, contact, membership_level } = req.body;
+    const { name, email, password, address, logo, contact, membership_level, currency } = req.body;
 
     // ✅ Validate required fields
-    if (!name || !email || !password || !address || !logo || !contact || !membership_level) {
-      return res.status(400).json({ message: "All fields including are required" });
+    if (!name || !email || !password || !address || !logo || !contact || !membership_level || !currency) {
+      return res.status(400).json({ message: "All fields including currency are required" });
     }
- 
+
     // ✅ Check if email already exists
     const existing = await Restaurant.findOne({ email });
     if (existing) {
@@ -104,7 +104,7 @@ router.post("/restaurants", async (req, res) => {
     // ✅ Hash password
     const passwordHash = await bcrypt.hash(password, 10);
 
-    // ✅ Create restaurant with provided membership_level
+    // ✅ Create restaurant with provided membership_level and currency
     const restaurant = new Restaurant({
       name,
       email,
@@ -112,7 +112,8 @@ router.post("/restaurants", async (req, res) => {
       address,
       logo,
       contact,
-      membership_level
+      membership_level,
+      currency
     });
 
     await restaurant.save();
@@ -299,7 +300,7 @@ router.delete(
 // Register a new restaurant
 router.post("/restaurant/register", async (req, res) => {
   try {
-    const { name, email, password, logo, address, proFeatures, contact, subadmin_id, membership_level } = req.body;
+    const { name, email, password, logo, address, proFeatures, contact, subadmin_id, membership_level, currency } = req.body;
 
     // Check if email is already registered
     const existingRestaurant = await Restaurant.findOne({ email });
@@ -320,6 +321,7 @@ router.post("/restaurant/register", async (req, res) => {
       contact,
       proFeatures: proFeatures || false,
       membership_level,
+      currency
     };
 
     // Conditionally include subadmin_id if provided

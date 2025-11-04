@@ -10,7 +10,12 @@ const RestaurantSchema = new mongoose.Schema({
   membership_level: { type: Number, default: 1 }, 
   subadmin_id: { type: String }, 
   homeImage: { type: String },
-  active: { type: Boolean, default: true }
+  active: { type: Boolean, default: true },
+  currency: {
+  type: String,
+  default: "INR",
+  enum: ["INR", "USD", "EUR", "GBP", "AED", "AUD", "CAD", "SGD", "JPY", "CNY"]
+},
 }, { timestamps: true });
 
 module.exports = mongoose.model("Restaurant", RestaurantSchema);
