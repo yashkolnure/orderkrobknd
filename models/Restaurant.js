@@ -11,6 +11,10 @@ const RestaurantSchema = new mongoose.Schema({
   subadmin_id: { type: String }, 
   homeImage: { type: String },
   active: { type: Boolean, default: true },
+    expiresAt: {
+    type: Date,
+    default: null,
+  },
   currency: {
   type: String,
   default: "INR",

@@ -88,7 +88,17 @@ router.put("/:id/orders/:orderId", auth, async (req, res) => {
 // ADD new restaurant
 router.post("/restaurants", async (req, res) => {
   try {
-    const { name, email, password, address, logo, contact, membership_level, currency } = req.body;
+    const {
+      name,
+      email,
+      password,
+      address,
+      logo,
+      contact,
+      membership_level,
+      currency,
+      planType = "free", // default if not provided
+    } = req.body;
 
     // ✅ Validate required fields
     if (!name || !email || !password || !address || !logo || !contact || !membership_level || !currency) {
@@ -104,7 +114,13 @@ router.post("/restaurants", async (req, res) => {
     // ✅ Hash password
     const passwordHash = await bcrypt.hash(password, 10);
 
-    // ✅ Create restaurant with provided membership_level and currency
+    // ✅ Calculate expiry date based on planType
+    const expiryDate = new Date();
+    if (planType === "free") expiryDate.setDate(expiryDate.getDate() + 7);
+    else if (planType === "premium") expiryDate.setMonth(expiryDate.getMonth() + 1);
+    else if (planType === "pro") expiryDate.setFullYear(expiryDate.getFullYear() + 1);
+
+    // ✅ Create restaurant
     const restaurant = new Restaurant({
       name,
       email,
@@ -113,17 +129,24 @@ router.post("/restaurants", async (req, res) => {
       logo,
       contact,
       membership_level,
-      currency
+      currency,
+      planType,
+      expiresAt: expiryDate,
+      active: true, // Always true on registration
     });
 
     await restaurant.save();
 
-    res.status(201).json(restaurant);
+    res.status(201).json({
+      message: "Restaurant created successfully",
+      restaurant,
+    });
   } catch (err) {
-    console.error(err);
+    console.error("Error creating restaurant:", err);
     res.status(500).json({ message: "Error creating restaurant" });
   }
 });
+
 
 // Backend route example
 router.get("/restaurants/check-email", async (req, res) => {
@@ -142,16 +165,35 @@ router.get("/restaurants/check-email", async (req, res) => {
 router.put("/restaurants/:id", async (req, res) => {
   try {
     const updates = { ...req.body };
+
+    // 🧩 Handle password hashing if provided
     if (updates.password) {
       updates.passwordHash = await bcrypt.hash(updates.password, 10);
       delete updates.password;
     }
+
+    // 🕐 Handle activation + expiration logic
+    if (typeof updates.active !== "undefined") {
+      if (updates.active) {
+        // If being activated, set expiresAt (if provided by frontend)
+        if (updates.expiresAt) {
+          updates.expiresAt = new Date(updates.expiresAt);
+        }
+      } else {
+        // If deactivating manually, clear expiry
+        updates.expiresAt = null;
+      }
+    }
+
+    // ✅ Update restaurant
     const updated = await Restaurant.findByIdAndUpdate(req.params.id, updates, { new: true });
     res.json(updated);
   } catch (err) {
+    console.error("Update failed:", err);
     res.status(500).json({ message: "Update failed" });
   }
 });
+
 
 // DELETE restaurant
 router.delete("/restaurants/:id", async (req, res) => {

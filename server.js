@@ -7,11 +7,21 @@ const dotenv = require("dotenv");
 const publicRoutes = require("./routes/public");
 const MenuItem = require("./models/MenuItem"); // adjust the path as needed
 const Order = require("./models/Order"); // ✅ Add "./"
+const cron = require("node-cron");
+const Restaurant = require("./models/Restaurant");
 const OrderHistory = require("./models/OrderHistory"); // ✅ Add "./"
 // Load environment variables
 dotenv.config();
 const Razorpay = require("razorpay");
 const crypto = require("crypto");
+
+cron.schedule("0 * * * *", async () => {
+  const now = new Date();
+  await Restaurant.updateMany(
+    { active: true, expiresAt: { $lte: now } },
+    { $set: { active: false } }
+  );
+});
 
 // ✅ Razorpay Instance
 const razorpay = new Razorpay({
