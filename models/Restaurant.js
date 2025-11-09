@@ -15,6 +15,11 @@ const RestaurantSchema = new mongoose.Schema({
     type: Date,
     default: null,
   },
+  enableOrdering: {
+    type: String,
+    enum: ["enabled", "disabled"],
+    default: "enabled",
+  },
   currency: {
   type: String,
   default: "INR",
