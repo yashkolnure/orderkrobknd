@@ -91,64 +91,98 @@ const adminRoutes = require("./routes/admin");
 
 // Use routes
 app.use("/api/admin", adminRoutes);
+// ... (rest of the imports and setup)
 app.use("/api", publicRoutes);
+
 app.post("/api/clearTable/:tableNumber", async (req, res) => {
   try {
-    const { tableNumber } = req.params; // keep as string
-    const orders = await Order.find({ tableNumber });
+    const { tableNumber } = req.params;
+    
+    // 1. Get Financials from Frontend
+    const { 
+      taxRate = 0, 
+      discountRate = 0, 
+      additionalCharges = 0,
+      paymentMethod = 'Cash' 
+    } = req.body;
+
+    // 2. Find active orders
+    const orders = await Order.find({ tableNumber }).populate('items.itemId');
 
     if (!orders.length) {
       return res.status(404).json({ message: "No orders found for this table." });
     }
 
-    // ✅ Generate custom formatted invoice number once
+    // 3. Generate Invoice Number
     const now = new Date();
     const formatNumber = (n) => n.toString().padStart(2, '0');
     const invoiceNumber = `INV-${formatNumber(now.getDate())}${formatNumber(now.getMonth() + 1)}${now.getFullYear()}${formatNumber(now.getHours())}${formatNumber(now.getMinutes())}${formatNumber(now.getSeconds())}`;
 
-    const ordersWithHistoryData = [];
+    // 4. Consolidate Items & Calculate Subtotal
+    let subTotal = 0;
+    const allOrderItems = [];
+    const restaurantId = orders[0].restaurantId;
 
     for (const order of orders) {
-      const orderObj = order.toObject();
+      for (const item of order.items) {
+        const itemTotal = item.price * item.quantity;
+        subTotal += itemTotal;
 
-      const populatedOrderItems = await Promise.all(
-        orderObj.items.map(async (item) => {
-          try {
-            const itemData = await MenuItem.findById(item.itemId);
-            return {
-              name: itemData?.name || "Unknown Item",
-              quantity: item.quantity,
-              price: item.price,
-            };
-          } catch (err) {
-            console.warn(`⚠️ Error finding MenuItem for ID ${item.itemId}:`, err);
-            return {
-              name: "Unknown Item",
-              quantity: item.quantity,
-              price: item.price,
-            };
-          }
-        })
-      );
-
-      ordersWithHistoryData.push({
-        tableNumber: order.tableNumber,
-        restaurantId: order.restaurantId,
-        invoiceNumber, // ✅ Same invoice number for all
-        totalAmount: order.total,
-        orderItems: populatedOrderItems,
-        timestamp: now,
-      });
+        allOrderItems.push({
+          name: item.itemId ? item.itemId.name : "Unknown Item",
+          quantity: item.quantity,
+          price: item.price,
+          itemId: item.itemId ? item.itemId._id : null
+        });
+      }
     }
 
-    await OrderHistory.insertMany(ordersWithHistoryData);
+    // 5. Calculate Finals
+    const tRate = parseFloat(taxRate);
+    const dRate = parseFloat(discountRate);
+    const addCharges = parseFloat(additionalCharges);
+
+    const taxAmount = (subTotal * tRate) / 100;
+    const discountAmount = (subTotal * dRate) / 100;
+    
+    // Formula: Subtotal + Tax + Charges - Discount
+    const finalTotalVal = subTotal + taxAmount + addCharges - discountAmount;
+
+    // 6. Create History Record
+    const newHistory = new OrderHistory({
+      restaurantId,
+      tableNumber,
+      invoiceNumber,
+      orderItems: allOrderItems,
+      
+      // Financial Breakdown
+      subTotal: parseFloat(subTotal.toFixed(2)),
+      taxRate: tRate,
+      taxAmount: parseFloat(taxAmount.toFixed(2)),
+      discountRate: dRate,
+      discountAmount: parseFloat(discountAmount.toFixed(2)),
+      additionalCharges: parseFloat(addCharges.toFixed(2)),
+      
+      // ✅ FIX: Save to BOTH fields to satisfy schema and new logic
+      finalTotal: parseFloat(finalTotalVal.toFixed(2)), 
+      totalAmount: parseFloat(finalTotalVal.toFixed(2)), 
+      
+      paymentMethod,
+      timestamp: now
+    });
+
+    await newHistory.save();
+
+    // 7. Delete Active Orders
     await Order.deleteMany({ tableNumber });
 
-    console.log("✅ Orders saved to history & deleted!");
+    console.log(`✅ Table ${tableNumber} cleared. Invoice: ${invoiceNumber}`);
+
     res.json({
       success: true,
-      message: `Table ${tableNumber} cleared and orders archived.`,
-      invoiceNumber
+      message: `Table ${tableNumber} cleared.`,
+      invoiceNumber,
+      totalAmount: finalTotalVal
     });
 
   } catch (error) {
