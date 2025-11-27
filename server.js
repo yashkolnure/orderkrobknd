@@ -17,10 +17,25 @@ const crypto = require("crypto");
 
 cron.schedule("0 * * * *", async () => {
   const now = new Date();
-  await Restaurant.updateMany(
-    { active: true, expiresAt: { $lte: now } },
-    { $set: { active: false } }
-  );
+
+  try {
+    // 1. Existing: Deactivate QR Menu if time has passed
+    await Restaurant.updateMany(
+      { active: true, expiresAt: { $lte: now } },
+      { $set: { active: false } }
+    );
+
+    // 2. 🆕 New: Deactivate Billing if time has passed
+    await Restaurant.updateMany(
+      { billing: true, billingExpiresAt: { $lte: now } },
+      { $set: { billing: false } }
+    );
+
+    console.log("✅ Cron Job Checked: Expired QR Menus & Billing Plans processed.");
+    
+  } catch (error) {
+    console.error("❌ Cron Job Error:", error);
+  }
 });
 
 // ✅ Razorpay Instance

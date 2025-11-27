@@ -21,10 +21,13 @@ const RestaurantSchema = new mongoose.Schema({
     default: "enabled",
   },
   currency: {
-  type: String,
-  default: "INR",
-  enum: ["INR", "USD", "EUR", "GBP", "AED", "AUD", "CAD", "SGD", "JPY", "CNY"]
-},
+    type: String,
+    default: "INR",
+    enum: ["INR", "USD", "EUR", "GBP", "AED", "AUD", "CAD", "SGD", "JPY", "CNY"]
+  },
+  // ✅ NEW: Billing Status Fields
+  billing: { type: Boolean, default: false },
+  billingExpiresAt: { type: Date, default: null },
 }, { timestamps: true });
 
 module.exports = mongoose.model("Restaurant", RestaurantSchema);
