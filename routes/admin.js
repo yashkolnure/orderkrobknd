@@ -951,7 +951,7 @@ router.get("/restaurants-with-many-menus", async (req, res) => {
     // Step 2: Fetch restaurant details
     const restaurants = await Restaurant.find(
       { _id: { $in: restaurantIds } },
-      { name: 1, logo: 1, address: 1 } // only select required fields
+      { name: 1, logo: 1, address: 1, contact: 1 } // only select required fields
     ).lean();
 
     res.json({ success: true, restaurants });
