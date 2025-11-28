@@ -962,4 +962,62 @@ router.get("/restaurants-with-many-menus", async (req, res) => {
 });
 
 
+// PUT /api/admin/:id/status
+router.put('/:id/status',  async (req, res) => {
+  try {
+    const { isLive } = req.body;
+    await Restaurant.findByIdAndUpdate(req.params.id, { isLive });
+    res.status(200).json({ success: true, isLive });
+  } catch (error) {
+    res.status(500).json({ message: "Server Error" });
+  }
+});
+
+// GET /api/orders/table/:restaurantId/:tableNumber
+router.get('/orders/table/:restaurantId/:tableNumber', async (req, res) => {
+  try {
+    const { restaurantId, tableNumber } = req.params;
+
+    // 1. Calculate Start of Today (00:00:00) to filter old orders
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+
+    // 2. Find orders
+    const orders = await Order.find({
+      restaurantId: restaurantId,
+      tableNumber: tableNumber,
+      createdAt: { $gte: startOfDay } // Only show orders from today
+    }).sort({ createdAt: -1 }); // Newest first
+
+    res.json(orders);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Server Error fetching table orders" });
+  }
+});
+
+// This handles updates for orderMode, billing, isLive, etc.
+router.put('/:id/settings', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updates = req.body; // Contains { orderMode: 'billing' } etc.
+
+    // 1. Find and Update
+    const updatedRestaurant = await Restaurant.findByIdAndUpdate(
+      id,
+      { $set: updates },
+      { new: true } // Return the updated document
+    );
+
+    if (!updatedRestaurant) {
+      return res.status(404).json({ message: "Restaurant not found" });
+    }
+
+    res.json({ success: true, restaurant: updatedRestaurant });
+  } catch (error) {
+    console.error("Settings update error:", error);
+    res.status(500).json({ message: "Server Error" });
+  }
+});
+
 module.exports = router;

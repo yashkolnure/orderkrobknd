@@ -20,6 +20,15 @@ const RestaurantSchema = new mongoose.Schema({
     enum: ["enabled", "disabled"],
     default: "enabled",
   },
+  orderMode: {
+    type: String,
+    enum: ['whatsapp', 'billing'], 
+    default: 'whatsapp'
+  },
+  isLive: { 
+    type: Boolean, 
+    default: true 
+  },
   currency: {
     type: String,
     default: "INR",
