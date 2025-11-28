@@ -978,16 +978,19 @@ router.get('/orders/table/:restaurantId/:tableNumber', async (req, res) => {
   try {
     const { restaurantId, tableNumber } = req.params;
 
-    // 1. Calculate Start of Today (00:00:00) to filter old orders
+    // 1. Calculate Start of Today
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
 
-    // 2. Find orders
+    // 2. Find orders and Populate using 'items.itemId'
     const orders = await Order.find({
       restaurantId: restaurantId,
       tableNumber: tableNumber,
-      createdAt: { $gte: startOfDay } // Only show orders from today
-    }).sort({ createdAt: -1 }); // Newest first
+      createdAt: { $gte: startOfDay } 
+    })
+    .sort({ createdAt: -1 })
+    // ▼ THIS IS THE FIX ▼
+    .populate('items.itemId', 'name price description type'); 
 
     res.json(orders);
   } catch (error) {
@@ -995,6 +998,7 @@ router.get('/orders/table/:restaurantId/:tableNumber', async (req, res) => {
     res.status(500).json({ message: "Server Error fetching table orders" });
   }
 });
+
 
 // This handles updates for orderMode, billing, isLive, etc.
 router.put('/:id/settings', async (req, res) => {
