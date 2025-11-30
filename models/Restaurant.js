@@ -37,6 +37,10 @@ const RestaurantSchema = new mongoose.Schema({
   // ✅ NEW: Billing Status Fields
   billing: { type: Boolean, default: false },
   billingExpiresAt: { type: Date, default: null },
+  resetOtp: String,
+  resetOtpExpires: Date,
+  tempResetToken: String,
+  categoryOrder: { type: Array, default: [] },
 }, { timestamps: true });
 
 module.exports = mongoose.model("Restaurant", RestaurantSchema);

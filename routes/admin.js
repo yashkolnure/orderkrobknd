@@ -18,6 +18,7 @@ const OrderHistory = require("../models/OrderHistory");
 const { route } = require("./public");
 const Offer = require("../models/Offer");   
 const verifySuperAdmin = require("../middleware/verifySuperAdmin");
+const axios = require('axios');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 const router = express.Router();
@@ -465,7 +466,7 @@ router.get("/:restaurantId/categories", (req, res) => {
     }
   });
   
-router.post("/login", async (req, res) => {
+  router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
     console.log("Incoming login:", email, password);
@@ -475,7 +476,15 @@ router.post("/login", async (req, res) => {
       return res.status(400).json({ message: "Email and password are required" });
     }
 
-    const restaurant = await Restaurant.findOne({ email });
+    // 👇 CHANGE 1: Clean the email input
+    const emailInput = email.trim(); 
+
+    // 👇 CHANGE 2: Use Regex to find the Restaurant (Case Insensitive)
+    // ^ means start, $ means end, 'i' means case-insensitive
+    const restaurant = await Restaurant.findOne({ 
+        email: { $regex: `^${emailInput}$`, $options: 'i' } 
+    });
+    
     console.log("Restaurant found:", restaurant);
 
     if (!restaurant) {
@@ -501,7 +510,7 @@ router.post("/login", async (req, res) => {
     const token = jwt.sign(
       { restaurantId: restaurant._id },
       process.env.JWT_SECRET,
-      { expiresIn: "7d" }
+      { expiresIn: "30d" }
     );
 
     console.log("Login successful");
@@ -512,8 +521,6 @@ router.post("/login", async (req, res) => {
     res.status(500).json({ message: "Internal Server Error" });
   }
 });
-
-
 
 router.delete("/orders/:id", auth, async (req, res) => {
   try {
@@ -1021,6 +1028,101 @@ router.put('/:id/settings', async (req, res) => {
   } catch (error) {
     console.error("Settings update error:", error);
     res.status(500).json({ message: "Server Error" });
+  }
+});
+
+
+// --- 1. REQUEST OTP ---
+router.post('/request-otp', async (req, res) => {
+  try {
+    const { email } = req.body;
+    const user = await Restaurant.findOne({ email });
+    if (!user) return res.status(404).json({ message: "Email not found" });
+
+    // Generate 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    
+    // Save to DB (Expires in 10 mins)
+    user.resetOtp = otp;
+    user.resetOtpExpires = Date.now() + 600000; 
+    await user.save();
+
+    // Call WordPress Endpoint
+    // ⚠️ REPLACE with your actual WP URL
+    await axios.post('https://petoba.avenirya.com/wp-json/petoba/v1/send-otp', {
+      email: user.email,
+      otp: otp
+    });
+
+    res.json({ message: "OTP sent to your email" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error sending OTP" });
+  }
+});
+
+// --- 2. VERIFY OTP ---
+router.post('/verify-otp', async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+    const user = await Restaurant.findOne({ 
+      email, 
+      resetOtp: otp, 
+      resetOtpExpires: { $gt: Date.now() } 
+    });
+
+    if (!user) return res.status(400).json({ message: "Invalid or expired OTP" });
+
+    // OTP is correct. Generate a temporary token to allow password change
+    const tempToken = require('crypto').randomBytes(16).toString('hex');
+    user.tempResetToken = tempToken;
+    user.resetOtp = undefined; // Clear OTP so it can't be reused
+    user.resetOtpExpires = undefined;
+    await user.save();
+
+    res.json({ message: "OTP Verified", tempToken });
+  } catch (err) {
+    res.status(500).json({ message: "Verification failed" });
+  }
+});
+
+// --- 3. RESET PASSWORD ---
+router.post('/reset-password-final', async (req, res) => {
+  try {
+    const { email, tempToken, newPassword } = req.body;
+    
+    console.log("👉 Attempting reset for:", email); // Debug Log
+
+    // 1. Find the user first
+    const user = await Restaurant.findOne({ email });
+
+    if (!user) {
+        console.log("❌ User not found");
+        return res.status(404).json({ message: "User not found" });
+    }
+
+    // 2. Verify the token manually (Safer debugging)
+    if (user.tempResetToken !== tempToken) {
+        console.log("❌ Token mismatch. DB:", user.tempResetToken, "Received:", tempToken);
+        return res.status(400).json({ message: "Invalid or expired session. Please verify OTP again." });
+    }
+
+    // 3. Hash the new password (IMPORTANT)
+    const salt = await bcrypt.genSalt(10);
+    user.passwordHash = await bcrypt.hash(newPassword, salt);
+
+    // 4. Clear the temporary token
+    user.tempResetToken = undefined;
+    user.resetOtp = undefined;
+    
+    await user.save();
+    console.log("✅ Password updated successfully");
+
+    res.json({ message: "Password updated successfully" });
+
+  } catch (err) {
+    console.error("❌ Server Error:", err);
+    res.status(500).json({ message: "Server error updating password" });
   }
 });
 
