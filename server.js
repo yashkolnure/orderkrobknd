@@ -108,12 +108,17 @@ const adminRoutes = require("./routes/admin");
 app.use("/api/admin", adminRoutes);
 // ... (rest of the imports and setup)
 app.use("/api", publicRoutes);
-
 app.post("/api/clearTable/:tableNumber", async (req, res) => {
   try {
-    const { tableNumber } = req.params;
+    // 1. Get & Clean Table Number
+    // Express automatically decodes "Nhi%20likha%20hai" -> "Nhi likha hai"
+    let { tableNumber } = req.params;
     
-    // 1. Get Financials from Frontend
+    // Safety: Remove accidental leading/trailing spaces
+    tableNumber = tableNumber.trim(); 
+
+    console.log(`Received Clear Request for Table: "${tableNumber}"`); // 🔍 Debug Log
+
     const { 
       taxRate = 0, 
       discountRate = 0, 
@@ -122,66 +127,66 @@ app.post("/api/clearTable/:tableNumber", async (req, res) => {
     } = req.body;
 
     // 2. Find active orders
+    // ⚠️ CRITICAL: Ensure your Mongoose Schema for 'Order' has tableNumber as String!
     const orders = await Order.find({ tableNumber }).populate('items.itemId');
 
     if (!orders.length) {
+      console.log(`❌ No orders found for table: "${tableNumber}"`);
       return res.status(404).json({ message: "No orders found for this table." });
     }
+
+    // ... (Rest of your logic stays exactly the same) ...
 
     // 3. Generate Invoice Number
     const now = new Date();
     const formatNumber = (n) => n.toString().padStart(2, '0');
     const invoiceNumber = `INV-${formatNumber(now.getDate())}${formatNumber(now.getMonth() + 1)}${now.getFullYear()}${formatNumber(now.getHours())}${formatNumber(now.getMinutes())}${formatNumber(now.getSeconds())}`;
 
-    // 4. Consolidate Items & Calculate Subtotal
+    // 4. Consolidate Items
     let subTotal = 0;
     const allOrderItems = [];
     const restaurantId = orders[0].restaurantId;
 
     for (const order of orders) {
       for (const item of order.items) {
-        const itemTotal = item.price * item.quantity;
+        // Handle case where itemId might be null (deleted item)
+        const itemPrice = item.price || (item.itemId ? item.itemId.price : 0) || 0;
+        const itemTotal = itemPrice * item.quantity;
         subTotal += itemTotal;
 
         allOrderItems.push({
-          name: item.itemId ? item.itemId.name : "Unknown Item",
+          name: item.itemId ? item.itemId.name : "Unknown/Deleted Item",
           quantity: item.quantity,
-          price: item.price,
+          price: itemPrice,
           itemId: item.itemId ? item.itemId._id : null
         });
       }
     }
 
     // 5. Calculate Finals
-    const tRate = parseFloat(taxRate);
-    const dRate = parseFloat(discountRate);
-    const addCharges = parseFloat(additionalCharges);
+    const tRate = parseFloat(taxRate) || 0;
+    const dRate = parseFloat(discountRate) || 0;
+    const addCharges = parseFloat(additionalCharges) || 0;
 
     const taxAmount = (subTotal * tRate) / 100;
     const discountAmount = (subTotal * dRate) / 100;
     
-    // Formula: Subtotal + Tax + Charges - Discount
     const finalTotalVal = subTotal + taxAmount + addCharges - discountAmount;
 
     // 6. Create History Record
     const newHistory = new OrderHistory({
       restaurantId,
-      tableNumber,
+      tableNumber, // This works for String or Number
       invoiceNumber,
       orderItems: allOrderItems,
-      
-      // Financial Breakdown
       subTotal: parseFloat(subTotal.toFixed(2)),
       taxRate: tRate,
       taxAmount: parseFloat(taxAmount.toFixed(2)),
       discountRate: dRate,
       discountAmount: parseFloat(discountAmount.toFixed(2)),
       additionalCharges: parseFloat(addCharges.toFixed(2)),
-      
-      // ✅ FIX: Save to BOTH fields to satisfy schema and new logic
       finalTotal: parseFloat(finalTotalVal.toFixed(2)), 
       totalAmount: parseFloat(finalTotalVal.toFixed(2)), 
-      
       paymentMethod,
       timestamp: now
     });
@@ -189,9 +194,10 @@ app.post("/api/clearTable/:tableNumber", async (req, res) => {
     await newHistory.save();
 
     // 7. Delete Active Orders
+    // This will work fine even with string table numbers
     await Order.deleteMany({ tableNumber });
 
-    console.log(`✅ Table ${tableNumber} cleared. Invoice: ${invoiceNumber}`);
+    console.log(`✅ Table "${tableNumber}" cleared successfully.`);
 
     res.json({
       success: true,
