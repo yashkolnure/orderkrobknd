@@ -108,16 +108,13 @@ const adminRoutes = require("./routes/admin");
 app.use("/api/admin", adminRoutes);
 // ... (rest of the imports and setup)
 app.use("/api", publicRoutes);
+
 app.post("/api/clearTable/:tableNumber", async (req, res) => {
   try {
-    // 1. Get & Clean Table Number
-    // Express automatically decodes "Nhi%20likha%20hai" -> "Nhi likha hai"
     let { tableNumber } = req.params;
-    
-    // Safety: Remove accidental leading/trailing spaces
-    tableNumber = tableNumber.trim(); 
+    tableNumber = tableNumber.trim(); // Clean up spaces
 
-    console.log(`Received Clear Request for Table: "${tableNumber}"`); // 🔍 Debug Log
+    console.log(`Received Request to clear table: "${tableNumber}"`);
 
     const { 
       taxRate = 0, 
@@ -126,16 +123,32 @@ app.post("/api/clearTable/:tableNumber", async (req, res) => {
       paymentMethod = 'Cash' 
     } = req.body;
 
-    // 2. Find active orders
-    // ⚠️ CRITICAL: Ensure your Mongoose Schema for 'Order' has tableNumber as String!
-    const orders = await Order.find({ tableNumber }).populate('items.itemId');
+    // 🧠 SMART QUERY LOGIC
+    // If the tableNumber is "Nhi likha hai", "null", or "undefined", 
+    // we also look for orders where the tableNumber is actually NULL or Missing in the DB.
+    let searchCriteria = { tableNumber: tableNumber };
 
-    if (!orders.length) {
-      console.log(`❌ No orders found for table: "${tableNumber}"`);
-      return res.status(404).json({ message: "No orders found for this table." });
+    const missingKeywords = ["Nhi likha hai", "null", "undefined", "N/A", "Unknown"];
+    
+    if (missingKeywords.includes(tableNumber)) {
+        console.log("⚠️ Handling 'Ghost' Table clearing...");
+        searchCriteria = {
+            $or: [
+                { tableNumber: tableNumber },         // Matches literal string "Nhi likha hai"
+                { tableNumber: null },                // Matches actual null value
+                { tableNumber: "" },                  // Matches empty string
+                { tableNumber: { $exists: false } }   // Matches orders with NO tableNumber field
+            ]
+        };
     }
 
-    // ... (Rest of your logic stays exactly the same) ...
+    // 2. Find active orders using the SMART Criteria
+    const orders = await Order.find(searchCriteria).populate('items.itemId');
+
+    if (!orders.length) {
+      console.log(`❌ No orders found for criteria:`, searchCriteria);
+      return res.status(404).json({ message: "No orders found for this table." });
+    }
 
     // 3. Generate Invoice Number
     const now = new Date();
@@ -145,17 +158,18 @@ app.post("/api/clearTable/:tableNumber", async (req, res) => {
     // 4. Consolidate Items
     let subTotal = 0;
     const allOrderItems = [];
-    const restaurantId = orders[0].restaurantId;
+    // Handle case where first order might have null restaurantId if data is bad
+    const restaurantId = orders[0].restaurantId || null; 
 
     for (const order of orders) {
       for (const item of order.items) {
-        // Handle case where itemId might be null (deleted item)
+        // Safety check for deleted items or bad prices
         const itemPrice = item.price || (item.itemId ? item.itemId.price : 0) || 0;
         const itemTotal = itemPrice * item.quantity;
         subTotal += itemTotal;
 
         allOrderItems.push({
-          name: item.itemId ? item.itemId.name : "Unknown/Deleted Item",
+          name: item.itemId ? item.itemId.name : "Unknown Item",
           quantity: item.quantity,
           price: itemPrice,
           itemId: item.itemId ? item.itemId._id : null
@@ -176,7 +190,7 @@ app.post("/api/clearTable/:tableNumber", async (req, res) => {
     // 6. Create History Record
     const newHistory = new OrderHistory({
       restaurantId,
-      tableNumber, // This works for String or Number
+      tableNumber: tableNumber, // Save the "Nhi likha hai" or "null" string for reference
       invoiceNumber,
       orderItems: allOrderItems,
       subTotal: parseFloat(subTotal.toFixed(2)),
@@ -193,11 +207,11 @@ app.post("/api/clearTable/:tableNumber", async (req, res) => {
 
     await newHistory.save();
 
-    // 7. Delete Active Orders
-    // This will work fine even with string table numbers
-    await Order.deleteMany({ tableNumber });
+    // 7. Delete Active Orders using the SAME Smart Criteria
+    // This ensures we delete the null/missing ones we just found
+    await Order.deleteMany(searchCriteria);
 
-    console.log(`✅ Table "${tableNumber}" cleared successfully.`);
+    console.log(`✅ Table "${tableNumber}" (and related ghosts) cleared.`);
 
     res.json({
       success: true,
