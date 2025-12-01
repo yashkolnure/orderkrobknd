@@ -6,6 +6,7 @@ const Restaurant = require("../models/Restaurant");
 const MenuItem = require("../models/MenuItem");
 const Order = require("../models/Order");  
 const CustomFields = require("../models/CustomFields");
+const Delivery = require("../models/Delivery");
 const fs = require("fs");
 const multer = require('multer');
 const { verifyAdmin } = require("../middleware/verifyAdmin");
@@ -1123,6 +1124,109 @@ router.post('/reset-password-final', async (req, res) => {
   } catch (err) {
     console.error("❌ Server Error:", err);
     res.status(500).json({ message: "Server error updating password" });
+  }
+});
+
+// POST /api/delivery/create
+router.post("/delivery/create", async (req, res) => {
+  try {
+    const { restaurantId, customer, items, totalAmount } = req.body;
+
+    // Validation
+    if (!restaurantId || !customer || !items || items.length === 0) {
+      return res.status(400).json({ success: false, message: "Missing required fields" });
+    }
+
+    // Create the Delivery Record
+    const newDelivery = new Delivery({
+      restaurantId,
+      customer,
+      items,
+      totalAmount,
+      status: "Pending", // Default status
+    });
+
+    const savedDelivery = await newDelivery.save();
+
+    res.status(201).json({ 
+      success: true, 
+      message: "Delivery order saved successfully", 
+      data: savedDelivery 
+    });
+
+  } catch (error) {
+    console.error("Error saving delivery:", error);
+    res.status(500).json({ success: false, message: "Server Error", error: error.message });
+  }
+});
+
+// 1. GET: Fetch all delivery orders for a restaurant (Newest first)
+router.get("/delivery/all/:restaurantId", async (req, res) => {
+  try {
+    const orders = await Delivery.find({ restaurantId: req.params.restaurantId })
+      .sort({ createdAt: -1 }); // Newest on top
+    res.json(orders);
+  } catch (error) {
+    res.status(500).json({ message: "Error fetching orders" });
+  }
+});
+
+// 2. PUT: Update Order Status
+router.put("/delivery/status/:orderId", async (req, res) => {
+  try {
+    const { status } = req.body;
+    const order = await Delivery.findByIdAndUpdate(
+      req.params.orderId,
+      { status: status },
+      { new: true } // Return the updated document
+    );
+    res.json({ success: true, data: order });
+  } catch (error) {
+    res.status(500).json({ message: "Error updating status" });
+  }
+});
+
+router.put("/bill/:orderId", async (req, res) => {
+  try {
+    const { tax, deliveryCharge, discount, totalAmount } = req.body;
+    
+    const order = await Delivery.findByIdAndUpdate(
+      req.params.orderId,
+      { 
+        tax, 
+        deliveryCharge, 
+        discount, 
+        totalAmount 
+      },
+      { new: true }
+    );
+    
+    res.json({ success: true, data: order });
+  } catch (error) {
+    res.status(500).json({ message: "Error updating bill" });
+  }
+});
+
+// GET: Track All Orders by Phone Number
+router.get("/delivery/track/:restaurantId/:phone", async (req, res) => {
+  try {
+    const { restaurantId, phone } = req.params;
+
+    // ✅ Changed findOne -> find to get ALL orders
+    const orders = await Delivery.find({
+      restaurantId: restaurantId,
+      "customer.phone": phone,
+    }).sort({ createdAt: -1 }); // Newest first
+
+    if (!orders || orders.length === 0) {
+      return res.status(404).json({ success: false, message: "No orders found" });
+    }
+
+    // ✅ Return 'orders' array
+    res.json({ success: true, orders }); 
+  } catch (error) {
+    console.error("Tracking Error:", error);
+    res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
