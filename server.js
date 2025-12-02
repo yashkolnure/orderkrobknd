@@ -112,7 +112,7 @@ app.use("/api", publicRoutes);
 app.post("/api/clearTable/:tableNumber", async (req, res) => {
   try {
     let { tableNumber } = req.params;
-    tableNumber = tableNumber.trim(); // Clean up spaces
+    tableNumber = tableNumber.trim(); 
 
     console.log(`Received Request to clear table: "${tableNumber}"`);
 
@@ -124,29 +124,25 @@ app.post("/api/clearTable/:tableNumber", async (req, res) => {
     } = req.body;
 
     // 🧠 SMART QUERY LOGIC
-    // If the tableNumber is "Nhi likha hai", "null", or "undefined", 
-    // we also look for orders where the tableNumber is actually NULL or Missing in the DB.
     let searchCriteria = { tableNumber: tableNumber };
-
     const missingKeywords = ["Nhi likha hai", "null", "undefined", "N/A", "Unknown"];
     
     if (missingKeywords.includes(tableNumber)) {
         console.log("⚠️ Handling 'Ghost' Table clearing...");
         searchCriteria = {
             $or: [
-                { tableNumber: tableNumber },         // Matches literal string "Nhi likha hai"
-                { tableNumber: null },                // Matches actual null value
-                { tableNumber: "" },                  // Matches empty string
-                { tableNumber: { $exists: false } }   // Matches orders with NO tableNumber field
+                { tableNumber: tableNumber },
+                { tableNumber: null },
+                { tableNumber: "" },
+                { tableNumber: { $exists: false } }
             ]
         };
     }
 
-    // 2. Find active orders using the SMART Criteria
+    // 2. Find ALL orders for this table (Active, Pending, Cancelled)
     const orders = await Order.find(searchCriteria).populate('items.itemId');
 
     if (!orders.length) {
-      console.log(`❌ No orders found for criteria:`, searchCriteria);
       return res.status(404).json({ message: "No orders found for this table." });
     }
 
@@ -158,12 +154,17 @@ app.post("/api/clearTable/:tableNumber", async (req, res) => {
     // 4. Consolidate Items
     let subTotal = 0;
     const allOrderItems = [];
-    // Handle case where first order might have null restaurantId if data is bad
     const restaurantId = orders[0].restaurantId || null; 
 
     for (const order of orders) {
+      
+      // 🛑 THIS IS THE FIX: Skip orders that are Cancelled or Rejected
+      if (order.status === 'cancelled' || order.status === 'rejected') {
+          console.log(`Skipping cancelled order ID: ${order._id}`);
+          continue; // Move to next order, do not add price
+      }
+
       for (const item of order.items) {
-        // Safety check for deleted items or bad prices
         const itemPrice = item.price || (item.itemId ? item.itemId.price : 0) || 0;
         const itemTotal = itemPrice * item.quantity;
         subTotal += itemTotal;
@@ -187,10 +188,11 @@ app.post("/api/clearTable/:tableNumber", async (req, res) => {
     
     const finalTotalVal = subTotal + taxAmount + addCharges - discountAmount;
 
-    // 6. Create History Record
+    // 6. Create History Record (Only if there is a valid total)
+    // If all orders were cancelled, subTotal might be 0. We usually still want to clear the table.
     const newHistory = new OrderHistory({
       restaurantId,
-      tableNumber: tableNumber, // Save the "Nhi likha hai" or "null" string for reference
+      tableNumber: tableNumber, 
       invoiceNumber,
       orderItems: allOrderItems,
       subTotal: parseFloat(subTotal.toFixed(2)),
@@ -207,11 +209,11 @@ app.post("/api/clearTable/:tableNumber", async (req, res) => {
 
     await newHistory.save();
 
-    // 7. Delete Active Orders using the SAME Smart Criteria
-    // This ensures we delete the null/missing ones we just found
+    // 7. Delete ALL Active Orders for this table (Includes Cancelled ones)
+    // This ensures even the rejected/cancelled orders are removed from the 'Active' screen
     await Order.deleteMany(searchCriteria);
 
-    console.log(`✅ Table "${tableNumber}" (and related ghosts) cleared.`);
+    console.log(`✅ Table "${tableNumber}" cleared. Cancelled orders removed.`);
 
     res.json({
       success: true,
