@@ -1230,4 +1230,223 @@ router.get("/delivery/track/:restaurantId/:phone", async (req, res) => {
   }
 });
 
+let CACHED_MEDIA = null;
+let CACHE_TIMESTAMP = 0;
+const CACHE_DURATION = 3600 * 1000; // 1 Hour
+
+// ==========================================
+// 2. SMART RELEVANCE LOGIC
+// ==========================================
+
+// A. Clean up the text (Remove extensions, dimensions, dates)
+const cleanText = (text) => {
+  if (!text) return "";
+  return text
+    .toLowerCase()
+    .replace(/\.[^/.]+$/, "") // Remove .jpg, .png extension
+    .replace(/(\d{3,4})x(\d{3,4})/g, "") // Remove dimensions like 150x150 or 1024x768
+    .replace(/img_|dsc_|wp-|screenshot/g, "") // Remove common camera/WP prefixes
+    .replace(/[-_]/g, " ") // Replace dashes/underscores with spaces
+    .replace(/[^a-z0-9 ]/g, "") // Remove special chars
+    .replace(/\s+/g, " ") // Collapse multiple spaces
+    .trim();
+};
+
+// B. Remove "Stop Words" (Words that don't add meaning)
+const removeStopWords = (text) => {
+  const stopWords = ["the", "a", "an", "with", "in", "on", "of", "and", "crispy", "hot", "spicy", "special", "plate", "bowl", "full", "half"];
+  return text.split(" ").filter(w => !stopWords.includes(w)).join(" ");
+};
+
+// C. The Brain: Compare Dish Name vs Image Filename
+const getSmartScore = (dishName, imageName) => {
+  // 1. Clean both strings
+  const cleanDish = removeStopWords(cleanText(dishName));
+  const cleanImg = removeStopWords(cleanText(imageName));
+
+  if (!cleanDish || !cleanImg) return 0;
+
+  // 2. Direct Substring Bonus (e.g. Dish: "Paneer Tikka", Img: "Paneer Tikka Masala")
+  if (cleanImg.includes(cleanDish)) return 1.0; // Perfect match
+
+  // 3. Token Matching (Dice Coefficient)
+  const dishTokens = cleanDish.split(" ");
+  const imgTokens = cleanImg.split(" ");
+  
+  // Count matches
+  let matches = 0;
+  dishTokens.forEach(token => {
+    if (imgTokens.includes(token)) matches++;
+  });
+
+  // Calculate score: (2 * matches) / (total words)
+  return (2.0 * matches) / (dishTokens.length + imgTokens.length);
+};
+
+// ==========================================
+// 3. PARALLEL FETCHING ENGINE
+// ==========================================
+const fetchWPImagesParallel = async () => {
+    const wpUrl = "https://website.avenirya.com/wp-json/wp/v2/media";
+    const username = "admin";
+    const password = "udnR gl7q 5wds 6LzC P8iO 3F1X"; // ⚠️ Use env variables
+    const auth = Buffer.from(`${username}:${password}`).toString('base64');
+
+    let allMedia = [];
+    const perPage = 100;
+    const totalPagesToScan = 100; // 100 pages * 100 items = 10,000 items
+    
+    // Create an array of page numbers: [1, 2, 3 ... 100]
+    const pages = Array.from({ length: totalPagesToScan }, (_, i) => i + 1);
+    
+    // We will fetch 5 pages at a time (Concurrency Limit) to avoid Timeouts
+    const chunkSize = 5; 
+    
+    console.log(`🚀 Starting Parallel Download of ${totalPagesToScan * perPage} images...`);
+
+    for (let i = 0; i < pages.length; i += chunkSize) {
+        const chunk = pages.slice(i, i + chunkSize);
+        
+        // Execute 5 requests simultaneously
+        const promises = chunk.map(page => 
+            axios.get(wpUrl, {
+                params: { per_page: perPage, page: page, _fields: "title,source_url" },
+                headers: { Authorization: `Basic ${auth}` },
+                timeout: 10000 // 10s timeout per request
+            }).catch(err => null) // Return null on error so Promise.all doesn't fail
+        );
+
+        const results = await Promise.all(promises);
+
+        results.forEach(res => {
+            if (res && res.data) {
+                const simplified = res.data.map(m => ({
+                    title: m.title.rendered, // Keep original title for processing later
+                    url: m.source_url
+                }));
+                allMedia.push(...simplified);
+            }
+        });
+
+        // Optional: Log progress
+        console.log(`...downloaded batch ${i / chunkSize + 1} (${allMedia.length} images so far)`);
+    }
+
+    return allMedia;
+};
+
+// ==========================================
+// ROUTE: GET SUGGESTIONS
+// ==========================================
+router.post("/:restaurantId/get-ai-suggestions", async (req, res) => {
+  req.setTimeout(600000); // Increase timeout to 10 minutes for the heavy lift
+
+  try {
+    const { restaurantId } = req.params;
+    
+    // 1. Fetch Missing Items
+    const allItems = await MenuItem.find({ restaurantId });
+    const targetItems = allItems.filter(item => {
+        if (!item.image) return true;
+        if (item.image.trim() === "") return true;
+        if (item.image.length < 15) return true; 
+        return false;
+    });
+
+    if (targetItems.length === 0) {
+        return res.json({ success: true, suggestions: {}, candidates: {}, message: "All items have images." });
+    }
+
+    console.log(`🔍 Need images for ${targetItems.length} items.`);
+
+    // 2. Fetch Media (Check Cache or Download)
+    let allMedia = [];
+    
+    if (CACHED_MEDIA && (Date.now() - CACHE_TIMESTAMP < CACHE_DURATION)) {
+        console.log("⚡ Using Cached Media Library");
+        allMedia = CACHED_MEDIA;
+    } else {
+        allMedia = await fetchWPImagesParallel();
+        
+        if (allMedia.length > 0) {
+            CACHED_MEDIA = allMedia;
+            CACHE_TIMESTAMP = Date.now();
+            console.log(`✅ Cached ${allMedia.length} images.`);
+        }
+    }
+
+    // 3. Match Logic
+    const suggestions = {}; 
+    const candidates = {};
+    let foundCount = 0;
+    
+    for (const item of targetItems) {
+      const searchString = `${item.name} ${item.category}`;
+      let itemMatches = [];
+
+      for (const media of allMedia) {
+        if(!media.title) continue;
+        
+        // Use the new Smart Score function
+        const score = getSmartScore(searchString, media.title);
+        
+        // Threshold: 0.35 (Flexible matching due to better cleaning)
+        if (score > 0.35) {
+          itemMatches.push({ url: media.url, score });
+        }
+      }
+
+      // Sort by score
+      itemMatches.sort((a, b) => b.score - a.score);
+      
+      // Top 6 matches
+      const topMatches = itemMatches.slice(0, 6).map(m => m.url);
+
+      if (topMatches.length > 0) {
+        suggestions[item._id] = topMatches[0];
+        candidates[item._id] = topMatches;
+        foundCount++;
+      }
+    }
+
+    res.json({ 
+        success: true, 
+        suggestions, 
+        candidates,
+        message: `Scanned ${allMedia.length} images. Matched ${foundCount} items.`
+    });
+
+  } catch (error) {
+    console.error("Match Error:", error);
+    res.status(500).json({ message: "Server Error" });
+  }
+});
+// ==========================================
+// ROUTE 2: BULK UPDATE (COMMIT CHANGES)
+// ==========================================
+router.put("/:restaurantId/bulk-update-images", async (req, res) => {
+  try {
+    const { updates } = req.body; // { itemId: "url", itemId2: "url" }
+    
+    if (!updates || Object.keys(updates).length === 0) {
+        return res.status(400).json({ message: "No updates provided" });
+    }
+
+    const bulkOps = Object.entries(updates).map(([id, url]) => ({
+      updateOne: {
+        filter: { _id: id },
+        update: { $set: { image: url } }
+      }
+    }));
+
+    await MenuItem.bulkWrite(bulkOps);
+
+    res.json({ success: true, message: "Database updated successfully" });
+  } catch (error) {
+    console.error("Bulk Save Error:", error);
+    res.status(500).json({ message: "Error saving images" });
+  }
+});
+
+
 module.exports = router;
