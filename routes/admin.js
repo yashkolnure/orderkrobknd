@@ -344,18 +344,45 @@ router.delete(
 // Register a new restaurant
 router.post("/restaurant/register", async (req, res) => {
   try {
-    const { name, email, password, logo, address, proFeatures, contact, subadmin_id, membership_level, currency } = req.body;
+    const { 
+      name, 
+      email, 
+      password, 
+      logo, 
+      address, 
+      contact, 
+      subadmin_id, 
+      membership_level, 
+      currency,
+      // New fields from Frontend
+      expiresAt, 
+      billing, 
+      billingExpiresAt, 
+      enableOrdering,
+      paymentStatus, // Optional: if you added this to Schema
+      transactionId  // Optional: if you added this to Schema
+    } = req.body;
 
-    // Check if email is already registered
+    // 1. Check if email is already registered
     const existingRestaurant = await Restaurant.findOne({ email });
     if (existingRestaurant) {
       return res.status(400).json({ message: "Email already in use" });
     }
 
-    // Hash password
+    // 2. Hash password
     const passwordHash = await bcrypt.hash(password, 10);
 
-    // Build restaurant object
+    // 3. Determine Expiry Date
+    // Priority: Use date from Frontend (Paid/Plan logic) > Fallback to 7 Days (Trial)
+    let finalExpiry;
+    if (expiresAt) {
+      finalExpiry = new Date(expiresAt);
+    } else {
+      finalExpiry = new Date();
+      finalExpiry.setDate(finalExpiry.getDate() + 7); // Default 7-day trial
+    }
+
+    // 4. Build restaurant object
     const newRestaurantData = {
       name,
       email,
@@ -363,23 +390,38 @@ router.post("/restaurant/register", async (req, res) => {
       logo,
       address,
       contact,
-      proFeatures: proFeatures || false,
-      membership_level,
-      currency
+      membership_level: membership_level || 1,
+      currency: currency || "INR",
+      
+      // --- Feature Flags & Dates ---
+      expiresAt: finalExpiry,
+      billing: billing || false, // Boolean from frontend
+      billingExpiresAt: billingExpiresAt ? new Date(billingExpiresAt) : null,
+      enableOrdering: enableOrdering || "enabled", // 'enabled' or 'disabled'
+      
+      // Optional: Add payment info if your Schema supports it
+      // paymentStatus, 
+      // transactionId
     };
 
-    // Conditionally include subadmin_id if provided
+    // 5. Conditionally include subadmin_id if provided
     if (subadmin_id) {
       newRestaurantData.subadmin_id = subadmin_id;
     }
 
-    // Create and save restaurant
+    // 6. Create and save restaurant
     const newRestaurant = new Restaurant(newRestaurantData);
     await newRestaurant.save();
 
     res.status(201).json({
       message: "Restaurant registered successfully",
-      restaurant: newRestaurant,
+      restaurant: {
+        id: newRestaurant._id,
+        name: newRestaurant.name,
+        email: newRestaurant.email,
+        expiresAt: newRestaurant.expiresAt,
+        billing: newRestaurant.billing
+      },
     });
 
   } catch (error) {
@@ -387,7 +429,6 @@ router.post("/restaurant/register", async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 });
-
 // GET all restaurants for a specific subadmin
 router.get("/restaurant/all", async (req, res) => {
   try {
