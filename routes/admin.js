@@ -26,7 +26,6 @@ const router = express.Router();
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({ model: "gemini-pro" });
 
-
 router.get('/pro-features', async (req, res) => {
   try {
     const data = await Restaurant.find({}, { proFeatures: 1, _id: 0 }); // only proFeatures field
@@ -1491,49 +1490,58 @@ router.put("/:restaurantId/bulk-update-images", async (req, res) => {
 
 router.post("/chat", async (req, res) => {
   const { userMessage, menuContext, restaurantName, currencySymbol } = req.body;
+  const API_KEY = process.env.GROQ_API_KEY;
+
+  if (!API_KEY) {
+    return res.status(500).json({ reply: "Server Error: API Key is missing." });
+  }
 
   try {
-    // 1. Lighten the data load for the 1B model
-    // 1B models have smaller attention spans; keep it simple!
-    const simplifiedMenu = menuContext.map(item => 
-      `- ${item.n || item.name} (${currencySymbol}${item.p || item.price})`
-    ).join("\n");
-
+    // 1. Construct the System Prompt
     const systemPrompt = `
-      You are a waiter for ${restaurantName}.
-      MENU:
-      ${simplifiedMenu}
+      You are the AI waiter for ${restaurantName}.
+      MENU DATA: ${JSON.stringify(menuContext)}
       
-      RULES:
-      1. Use the menu above.
-      2. If ordering, return JSON: {"action": "add_to_cart", "item_name": "Name", "quantity": 1}
-      3. Else, short text reply.
+      INSTRUCTIONS:
+      1. Recommend items ONLY from the MENU DATA provided above.
+      2. Keep answers short (max 2 sentences).
+      3. Use the currency symbol "${currencySymbol}".
+      4. Be polite and helpful.
     `;
 
-    // 2. Call LOCAL Ollama (Internal Port 11434)
-    const response = await fetch("http://127.0.0.1:11434/api/generate", {
+    // 2. Call Groq API (Llama 3 Model)
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Authorization": `Bearer ${API_KEY}`,
+        "Content-Type": "application/json"
+      },
       body: JSON.stringify({
-        model: "llama3.2:1b", // The exact model we installed
-        prompt: systemPrompt + "\nUser: " + userMessage + "\nAssistant:",
-        stream: false, 
-        options: {
-          temperature: 0.1, // Keep it focused
-          num_ctx: 2048
-        }
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userMessage }
+        ],
+        model: "llama3-8b-8192", // Free, fast, and smart model
+        temperature: 0.5,
+        max_tokens: 150
       })
     });
 
     const data = await response.json();
 
-    if (!response.ok) throw new Error("Ollama Error");
+    // 3. Error Handling
+    if (!response.ok) {
+      console.error("❌ Groq API Error:", JSON.stringify(data, null, 2));
+      return res.status(500).json({ reply: "I'm having trouble connecting to the AI." });
+    }
 
-    res.json({ reply: data.response });
+    // 4. Send Response
+    const aiReply = data.choices[0].message.content;
+    res.json({ reply: aiReply });
 
   } catch (error) {
-    console.error("Local AI Error:", error);
-    res.status(500).json({ reply: "I'm thinking... please ask again." });
+    console.error("❌ Server Error:", error);
+    res.status(500).json({ reply: "I'm having trouble thinking right now." });
   }
 });
 
