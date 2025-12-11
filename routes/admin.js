@@ -21,11 +21,15 @@ const Offer = require("../models/Offer");
 const verifySuperAdmin = require("../middleware/verifySuperAdmin");
 const axios = require('axios');
 const { GoogleGenerativeAI } = require("@google/generative-ai");
-
+const OpenAI = require("openai");
 const router = express.Router();
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY, 
+});
 
 router.get('/pro-features', async (req, res) => {
   try {
@@ -1489,5 +1493,52 @@ router.put("/:restaurantId/bulk-update-images", async (req, res) => {
   }
 });
 
+router.post("/chat", async (req, res) => {
+  const { userMessage, menuContext, restaurantName, currencySymbol } = req.body;
+
+  try {
+    // 1. Lighten the data load for the 1B model
+    // 1B models have smaller attention spans; keep it simple!
+    const simplifiedMenu = menuContext.map(item => 
+      `- ${item.n || item.name} (${currencySymbol}${item.p || item.price})`
+    ).join("\n");
+
+    const systemPrompt = `
+      You are a waiter for ${restaurantName}.
+      MENU:
+      ${simplifiedMenu}
+      
+      RULES:
+      1. Use the menu above.
+      2. If ordering, return JSON: {"action": "add_to_cart", "item_name": "Name", "quantity": 1}
+      3. Else, short text reply.
+    `;
+
+    // 2. Call LOCAL Ollama (Internal Port 11434)
+    const response = await fetch("http://127.0.0.1:11434/api/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "llama3.2:1b", // The exact model we installed
+        prompt: systemPrompt + "\nUser: " + userMessage + "\nAssistant:",
+        stream: false, 
+        options: {
+          temperature: 0.1, // Keep it focused
+          num_ctx: 2048
+        }
+      })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) throw new Error("Ollama Error");
+
+    res.json({ reply: data.response });
+
+  } catch (error) {
+    console.error("Local AI Error:", error);
+    res.status(500).json({ reply: "I'm thinking... please ask again." });
+  }
+});
 
 module.exports = router;
