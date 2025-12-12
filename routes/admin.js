@@ -1524,7 +1524,8 @@ router.post("/chat", async (req, res) => {
       RULES:
       1. Speak directly to the customer.
       2. If USER ORDERS, return JSON: {"action": "add_to_cart", "item_name": "Exact Name", "quantity": 1}
-      3. Otherwise, return plain text.
+      3. If listing items, use BULLET POINTS with line breaks. (e.g. \n- Item Name (Price))
+      4. Keep descriptions short.
     `;
 
     // 3. CALL API
