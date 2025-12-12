@@ -1490,58 +1490,87 @@ router.put("/:restaurantId/bulk-update-images", async (req, res) => {
 
 router.post("/chat", async (req, res) => {
   const { userMessage, menuContext, restaurantName, currencySymbol } = req.body;
-  const API_KEY = process.env.GROQ_API_KEY;
-
-  if (!API_KEY) {
-    return res.status(500).json({ reply: "Server Error: API Key is missing." });
-  }
 
   try {
-    // 1. Construct the System Prompt
+    // 1. SMART CONTEXT (Same as before)
+    const lowerUserMsg = userMessage.toLowerCase();
+    
+    let relevantItems = menuContext.filter(item => {
+      const textToCheck = `${item.n || item.name} ${item.c || item.category} ${item.d || item.description || ""}`.toLowerCase();
+      const userWords = lowerUserMsg.split(" ").filter(w => w.length > 3);
+      if (userWords.length === 0) return true;
+      return userWords.some(word => textToCheck.includes(word));
+    });
+
+    if (relevantItems.length === 0) {
+      relevantItems = menuContext.slice(0, 15);
+    } else {
+      relevantItems = relevantItems.slice(0, 10); 
+    }
+
+    const richContext = relevantItems.map(item => {
+      const name = item.n || item.name;
+      const price = item.p || item.price;
+      const desc = item.d || item.description || "";
+      return `- ${name} (${currencySymbol}${price}): ${desc}`;
+    }).join("\n");
+
+    // 2. PROMPT
     const systemPrompt = `
-      You are the AI waiter for ${restaurantName}.
-      MENU DATA: ${JSON.stringify(menuContext)}
+      You are a friendly waiter at ${restaurantName}.
+      MENU:
+      ${richContext}
       
-      INSTRUCTIONS:
-      1. Recommend items ONLY from the MENU DATA provided above.
-      2. Keep answers short (max 2 sentences).
-      3. Use the currency symbol "${currencySymbol}".
-      4. Be polite and helpful.
+      RULES:
+      1. Speak directly to the customer.
+      2. If USER ORDERS, return JSON: {"action": "add_to_cart", "item_name": "Exact Name", "quantity": 1}
+      3. Otherwise, return plain text.
     `;
 
-    // 2. Call Groq API (Llama 3 Model)
-    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    // 3. CALL API
+    const response = await fetch("https://text.pollinations.ai/", {
       method: "POST",
-      headers: {
-        "Authorization": `Bearer ${API_KEY}`,
-        "Content-Type": "application/json"
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userMessage }
         ],
-        model: "llama3-8b-8192", // Free, fast, and smart model
-        temperature: 0.5,
-        max_tokens: 150
+        model: "openai", 
+        seed: Math.floor(Math.random() * 1000),
+        jsonMode: false
       })
     });
 
-    const data = await response.json();
+    let aiText = await response.text();
 
-    // 3. Error Handling
-    if (!response.ok) {
-      console.error("❌ Groq API Error:", JSON.stringify(data, null, 2));
-      return res.status(500).json({ reply: "I'm having trouble connecting to the AI." });
+    // --- 🔴 NEW: AD REMOVER ---
+    // We look for the "Support Pollinations" text and cut everything after it.
+    const adStart = aiText.indexOf("--- **Support Pollinations.AI");
+    if (adStart !== -1) {
+      aiText = aiText.substring(0, adStart).trim();
     }
+    
+    // Also remove if they change the format slightly
+    const altAdStart = aiText.indexOf("**Ad**");
+    if (altAdStart !== -1) {
+      aiText = aiText.substring(0, altAdStart).trim();
+    }
+    // ---------------------------
 
-    // 4. Send Response
-    const aiReply = data.choices[0].message.content;
-    res.json({ reply: aiReply });
+    // 4. Safety Check (JSON vs Text)
+    try {
+      if (aiText.includes("analysis") && aiText.trim().startsWith("{")) {
+        const parsed = JSON.parse(aiText);
+        aiText = parsed.response || parsed.message || "Hi! What can I get for you?";
+      }
+    } catch (e) {}
+
+    res.json({ reply: aiText });
 
   } catch (error) {
-    console.error("❌ Server Error:", error);
-    res.status(500).json({ reply: "I'm having trouble thinking right now." });
+    console.error("AI Error:", error);
+    res.status(500).json({ reply: "I'm having a bit of trouble reading the menu." });
   }
 });
 
