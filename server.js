@@ -108,61 +108,72 @@ const adminRoutes = require("./routes/admin");
 app.use("/api/admin", adminRoutes);
 // ... (rest of the imports and setup)
 app.use("/api", publicRoutes);
-
 app.post("/api/clearTable/:tableNumber", async (req, res) => {
   try {
-    let { tableNumber } = req.params;
-    tableNumber = tableNumber.trim(); 
-
-    console.log(`Received Request to clear table: "${tableNumber}"`);
-
+    // 1. GET AND DECODE DATA
+    const { tableNumber: rawTableNumber } = req.params;
     const { 
       taxRate = 0, 
       discountRate = 0, 
       additionalCharges = 0,
-      paymentMethod = 'Cash' 
+      paymentMethod = 'Cash',
+      restaurantId // 🛑 CRITICAL: Ensure frontend sends this in the body
     } = req.body;
 
-    // 🧠 SMART QUERY LOGIC
-    let searchCriteria = { tableNumber: tableNumber };
-    const missingKeywords = ["Nhi likha hai", "null", "undefined", "N/A", "Unknown"];
-    
-    if (missingKeywords.includes(tableNumber)) {
-        console.log("⚠️ Handling 'Ghost' Table clearing...");
-        searchCriteria = {
-            $or: [
-                { tableNumber: tableNumber },
-                { tableNumber: null },
-                { tableNumber: "" },
-                { tableNumber: { $exists: false } }
-            ]
-        };
+    // Decode URL characters (converts %20 to real space) and trim leading/trailing spaces
+    const cleanTableInput = decodeURIComponent(rawTableNumber).trim();
+
+    console.log(`🚀 Processing Clear Table: "${cleanTableInput}" for Restaurant: ${restaurantId}`);
+
+    // 2. CONSTRUCT SMART SEARCH CRITERIA
+    // This Regex finds "yash", "yash ", " yash", and "YASH" all at once.
+    const missingKeywords = ["Nhi likha hai", "null", "undefined", "N/A", "Unknown", ""];
+    let searchCriteria = {};
+
+    if (!cleanTableInput || missingKeywords.includes(cleanTableInput)) {
+      searchCriteria = {
+        restaurantId,
+        $or: [
+          { tableNumber: null },
+          { tableNumber: "" },
+          { tableNumber: { $exists: false } }
+        ]
+      };
+    } else {
+      // Fuzzy search: ignores surrounding spaces in the database
+      searchCriteria = {
+        restaurantId,
+        $or: [
+          { tableNumber: { $regex: new RegExp(`^\\s*${cleanTableInput}\\s*$`, 'i') } },
+          { tableNumber: cleanTableInput }, // Direct string match
+          { tableNumber: Number(cleanTableInput) || -1 } // Direct number match (if input is e.g. "12")
+        ]
+      };
     }
 
-    // 2. Find ALL orders for this table (Active, Pending, Cancelled)
+    // 3. FIND THE ORDERS
     const orders = await Order.find(searchCriteria).populate('items.itemId');
 
-    if (!orders.length) {
-      return res.status(404).json({ message: "No orders found for this table." });
+    if (!orders || orders.length === 0) {
+      console.log(`❌ No orders found in DB for table pattern: "${cleanTableInput}"`);
+      return res.status(404).json({ 
+        success: false, 
+        message: `No active orders found for Table: ${cleanTableInput}` 
+      });
     }
 
-    // 3. Generate Invoice Number
+    // 4. GENERATE INVOICE NUMBER
     const now = new Date();
     const formatNumber = (n) => n.toString().padStart(2, '0');
     const invoiceNumber = `INV-${formatNumber(now.getDate())}${formatNumber(now.getMonth() + 1)}${now.getFullYear()}${formatNumber(now.getHours())}${formatNumber(now.getMinutes())}${formatNumber(now.getSeconds())}`;
 
-    // 4. Consolidate Items
+    // 5. CALCULATE TOTALS & CONSOLIDATE ITEMS
     let subTotal = 0;
     const allOrderItems = [];
-    const restaurantId = orders[0].restaurantId || null; 
 
     for (const order of orders) {
-      
-      // 🛑 THIS IS THE FIX: Skip orders that are Cancelled or Rejected
-      if (order.status === 'cancelled' || order.status === 'rejected') {
-          console.log(`Skipping cancelled order ID: ${order._id}`);
-          continue; // Move to next order, do not add price
-      }
+      // Skip cancelled orders for financial calculation
+      if (order.status === 'cancelled' || order.status === 'rejected') continue;
 
       for (const item of order.items) {
         const itemPrice = item.price || (item.itemId ? item.itemId.price : 0) || 0;
@@ -178,21 +189,19 @@ app.post("/api/clearTable/:tableNumber", async (req, res) => {
       }
     }
 
-    // 5. Calculate Finals
+    // 6. CALCULATE FINALS
     const tRate = parseFloat(taxRate) || 0;
     const dRate = parseFloat(discountRate) || 0;
     const addCharges = parseFloat(additionalCharges) || 0;
 
     const taxAmount = (subTotal * tRate) / 100;
     const discountAmount = (subTotal * dRate) / 100;
-    
     const finalTotalVal = subTotal + taxAmount + addCharges - discountAmount;
 
-    // 6. Create History Record (Only if there is a valid total)
-    // If all orders were cancelled, subTotal might be 0. We usually still want to clear the table.
+    // 7. CREATE HISTORY RECORD
     const newHistory = new OrderHistory({
       restaurantId,
-      tableNumber: tableNumber, 
+      tableNumber: cleanTableInput, // Save clean version
       invoiceNumber,
       orderItems: allOrderItems,
       subTotal: parseFloat(subTotal.toFixed(2)),
@@ -209,22 +218,26 @@ app.post("/api/clearTable/:tableNumber", async (req, res) => {
 
     await newHistory.save();
 
-    // 7. Delete ALL Active Orders for this table (Includes Cancelled ones)
-    // This ensures even the rejected/cancelled orders are removed from the 'Active' screen
-    await Order.deleteMany(searchCriteria);
+    // 8. 🧹 CLEANUP: DELETE ALL ACTIVE ORDERS
+    // We use the same searchCriteria to make sure we delete everything we found
+    const deleteResult = await Order.deleteMany(searchCriteria);
+    console.log(`✅ Table "${cleanTableInput}" cleared. Deleted ${deleteResult.deletedCount} orders.`);
 
-    console.log(`✅ Table "${tableNumber}" cleared. Cancelled orders removed.`);
-
+    // 9. RESPONSE
     res.json({
       success: true,
-      message: `Table ${tableNumber} cleared.`,
+      message: `Table ${cleanTableInput} cleared successfully.`,
       invoiceNumber,
       totalAmount: finalTotalVal
     });
 
   } catch (error) {
-    console.error("❌ Error clearing table:", error);
-    res.status(500).json({ message: "Internal server error", error: error.message });
+    console.error("❌ Critical Error clearing table:", error);
+    res.status(500).json({ 
+      success: false, 
+      message: "Internal server error", 
+      error: error.message 
+    });
   }
 });
 
