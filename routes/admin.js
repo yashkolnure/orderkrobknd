@@ -1487,104 +1487,94 @@ router.put("/:restaurantId/bulk-update-images", async (req, res) => {
     res.status(500).json({ message: "Error saving images" });
   }
 });
-const btoa = (str) => Buffer.from(str).toString('base64');
-
-// Production Configuration
-const AI_CONFIG = {
-  endpoint: "http://72.60.196.84/api/generate",
-  auth: "Basic " + btoa("yashkolnure:Y@sh@8767640530"),
-  model: "petoba",
-  timeout: 45000 // 45 seconds max wait
-};
 
 router.post("/chat", async (req, res) => {
   const { userMessage, menuContext, restaurantName, currencySymbol } = req.body;
 
-  // 1. Validation
-  if (!userMessage || !menuContext) {
-    return res.status(400).json({ reply: "I missed that. Could you repeat?" });
-  }
-
   try {
-    // 2. Context Optimization (Strictly limit to top 5 items for 1-core speed)
-    const lowerMsg = userMessage.toLowerCase();
-    const relevantItems = menuContext
-      .filter(item => {
-        const searchPool = `${item.n || item.name} ${item.c || item.category}`.toLowerCase();
-        return lowerMsg.split(" ").some(word => word.length > 3 && searchPool.includes(word));
-      })
-      .slice(0, 5);
+    // 1. SMART CONTEXT (Same as before)
+    const lowerUserMsg = userMessage.toLowerCase();
+    
+    let relevantItems = menuContext.filter(item => {
+      const textToCheck = `${item.n || item.name} ${item.c || item.category} ${item.d || item.description || ""}`.toLowerCase();
+      const userWords = lowerUserMsg.split(" ").filter(w => w.length > 3);
+      if (userWords.length === 0) return true;
+      return userWords.some(word => textToCheck.includes(word));
+    });
 
-    const richContext = relevantItems.length > 0 
-      ? relevantItems.map(i => `- ${i.n || i.name} (${currencySymbol}${i.p || i.price})`).join("\n")
-      : "No specific items found for this query.";
+    if (relevantItems.length === 0) {
+      relevantItems = menuContext.slice(0, 15);
+    } else {
+      relevantItems = relevantItems.slice(0, 10); 
+    }
 
-    // 3. System Prompt (Force JSON structure for reliability)
-    const systemPrompt = `Role: Waiter at ${restaurantName}.
-Menu: ${richContext}
-Rule 1: For orders, reply ONLY with JSON: {"action": "add_to_cart", "item": "NAME", "qty": 1}
-Rule 2: For questions, reply in 1 short sentence.`;
+    const richContext = relevantItems.map(item => {
+      const name = item.n || item.name;
+      const price = item.p || item.price;
+      const desc = item.d || item.description || "";
+      return `- ${name} (${currencySymbol}${price}): ${desc}`;
+    }).join("\n");
 
-    // 4. Fetch with AbortController (Stops hung processes)
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), AI_CONFIG.timeout);
+    // 2. PROMPT
+    const systemPrompt = `
+      You are a friendly waiter at ${restaurantName}.
+      MENU:
+      ${richContext}
+      
+      RULES:
+      1. Speak directly to the customer.
+      2. If USER ORDERS, return JSON: {"action": "add_to_cart", "item_name": "Exact Name", "quantity": 1}
+      3. If listing items, use BULLET POINTS with line breaks. (e.g. \n- Item Name (Price))
+      4. Keep descriptions short.
+    `;
 
-    const response = await fetch(AI_CONFIG.endpoint, {
+    // 3. CALL API
+    const response = await fetch("https://text.pollinations.ai/", {
       method: "POST",
-      signal: controller.signal,
-      headers: { 
-        "Content-Type": "application/json",
-        "Authorization": AI_CONFIG.auth 
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: AI_CONFIG.model,
-        prompt: `System: ${systemPrompt}\nUser: ${userMessage}\nAssistant:`,
-        stream: false,
-        options: {
-          num_predict: 60,   // Limits CPU work
-          temperature: 0.2,   // Faster, more deterministic
-          num_thread: 1       // Matches your 1-core VPS
-        }
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userMessage }
+        ],
+        model: "openai", 
+        seed: Math.floor(Math.random() * 1000),
+        jsonMode: false
       })
     });
 
-    clearTimeout(timeoutId);
+    let aiText = await response.text();
 
-    if (!response.ok) throw new Error(`VPS_OFFLINE_${response.status}`);
-
-    const data = await response.json();
-    let aiText = data.response.trim();
-
-    // 5. Robust JSON Extracter (Handles cases where AI adds "Here is your JSON:")
-    if (aiText.includes("{") && aiText.includes("}")) {
-      try {
-        const jsonMatch = aiText.match(/\{.*\}/s);
-        if (jsonMatch) {
-          const parsed = JSON.parse(jsonMatch[0]);
-          if (parsed.action === "add_to_cart") {
-            return res.json({ 
-              reply: `Excellent choice! I've added ${parsed.item || parsed.item_name} to your cart.`, 
-              action: parsed 
-            });
-          }
-        }
-      } catch (e) {
-        console.warn("AI returned malformed JSON, falling back to text.");
-      }
+    // --- 🔴 NEW: AD REMOVER ---
+    // We look for the "Support Pollinations" text and cut everything after it.
+    const adStart = aiText.indexOf("--- **Support Pollinations.AI");
+    if (adStart !== -1) {
+      aiText = aiText.substring(0, adStart).trim();
     }
+    
+    // Also remove if they change the format slightly
+    const altAdStart = aiText.indexOf("**Ad**");
+    if (altAdStart !== -1) {
+      aiText = aiText.substring(0, altAdStart).trim();
+    }
+    // ---------------------------
+
+    // 4. Safety Check (JSON vs Text)
+    try {
+      if (aiText.includes("analysis") && aiText.trim().startsWith("{")) {
+        const parsed = JSON.parse(aiText);
+        aiText = parsed.response || parsed.message || "Hi! What can I get for you?";
+      }
+    } catch (e) {}
 
     res.json({ reply: aiText });
 
   } catch (error) {
-    console.error("Production AI Error:", error.message);
-    
-    // Friendly production fallback
-    const fallbackMsg = error.name === 'AbortError' 
-      ? "The kitchen is a bit busy. Give me a moment!" 
-      : "I'm having trouble connecting to the menu. Try again in a second.";
-      
-    res.status(error.name === 'AbortError' ? 504 : 500).json({ reply: fallbackMsg });
+    console.error("AI Error:", error);
+    res.status(500).json({ reply: "I'm having a bit of trouble reading the menu." });
   }
 });
+
+
 
 module.exports = router;
