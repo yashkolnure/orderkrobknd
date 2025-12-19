@@ -1487,14 +1487,14 @@ router.put("/:restaurantId/bulk-update-images", async (req, res) => {
     res.status(500).json({ message: "Error saving images" });
   }
 });
+const btoa = (str) => Buffer.from(str).toString('base64');
 
 router.post("/chat", async (req, res) => {
   const { userMessage, menuContext, restaurantName, currencySymbol } = req.body;
 
   try {
-    // 1. SMART CONTEXT (Same as before)
+    // 1. SMART CONTEXT (Keeping your existing logic)
     const lowerUserMsg = userMessage.toLowerCase();
-    
     let relevantItems = menuContext.filter(item => {
       const textToCheck = `${item.n || item.name} ${item.c || item.category} ${item.d || item.description || ""}`.toLowerCase();
       const userWords = lowerUserMsg.split(" ").filter(w => w.length > 3);
@@ -1502,11 +1502,7 @@ router.post("/chat", async (req, res) => {
       return userWords.some(word => textToCheck.includes(word));
     });
 
-    if (relevantItems.length === 0) {
-      relevantItems = menuContext.slice(0, 15);
-    } else {
-      relevantItems = relevantItems.slice(0, 10); 
-    }
+    relevantItems = relevantItems.length === 0 ? menuContext.slice(0, 15) : relevantItems.slice(0, 10);
 
     const richContext = relevantItems.map(item => {
       const name = item.n || item.name;
@@ -1515,66 +1511,60 @@ router.post("/chat", async (req, res) => {
       return `- ${name} (${currencySymbol}${price}): ${desc}`;
     }).join("\n");
 
-    // 2. PROMPT
-    const systemPrompt = `
-      You are a friendly waiter at ${restaurantName}.
+    // 2. UPDATED PROMPT FOR OLLAMA
+    const systemPrompt = `You are a friendly waiter at ${restaurantName}.
       MENU:
       ${richContext}
       
       RULES:
       1. Speak directly to the customer.
       2. If USER ORDERS, return JSON: {"action": "add_to_cart", "item_name": "Exact Name", "quantity": 1}
-      3. If listing items, use BULLET POINTS with line breaks. (e.g. \n- Item Name (Price))
-      4. Keep descriptions short.
-    `;
+      3. Use BULLET POINTS for lists.
+      4. Keep answers short and professional.`;
 
-    // 3. CALL API
-    const response = await fetch("https://text.pollinations.ai/", {
+    // 3. CALL YOUR SELF-HOSTED VPS AI
+    const vpsResponse = await fetch("http://72.60.196.84/api/generate", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { 
+        "Content-Type": "application/json",
+        // Added the Auth header we set up in Nginx
+        "Authorization": "Basic " + btoa("yashkolnure:Y@sh@8767640530") 
+      },
       body: JSON.stringify({
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userMessage }
-        ],
-        model: "openai", 
-        seed: Math.floor(Math.random() * 1000),
-        jsonMode: false
+        model: "petoba", // Using the custom model you created
+        prompt: `System: ${systemPrompt}\n\nUser: ${userMessage}`,
+        stream: false // Set to false for easier parsing in a standard REST API
       })
     });
 
-    let aiText = await response.text();
-
-    // --- 🔴 NEW: AD REMOVER ---
-    // We look for the "Support Pollinations" text and cut everything after it.
-    const adStart = aiText.indexOf("--- **Support Pollinations.AI");
-    if (adStart !== -1) {
-      aiText = aiText.substring(0, adStart).trim();
+    if (!vpsResponse.ok) {
+      throw new Error(`VPS AI responded with status: ${vpsResponse.status}`);
     }
-    
-    // Also remove if they change the format slightly
-    const altAdStart = aiText.indexOf("**Ad**");
-    if (altAdStart !== -1) {
-      aiText = aiText.substring(0, altAdStart).trim();
-    }
-    // ---------------------------
 
-    // 4. Safety Check (JSON vs Text)
+    const data = await vpsResponse.json();
+    let aiText = data.response; // Ollama returns the text in the "response" field
+
+    // 4. CLEANUP (No more Ad Remover needed since it's YOUR AI!)
+    // But we still keep the JSON safety check in case the AI outputs a cart action
     try {
-      if (aiText.includes("analysis") && aiText.trim().startsWith("{")) {
+      if (aiText.trim().startsWith("{")) {
+        // If the AI returned a cart JSON, we pass it through or handle it
         const parsed = JSON.parse(aiText);
-        aiText = parsed.response || parsed.message || "Hi! What can I get for you?";
+        // If it's a cart action, we might want to return it specifically
+        if(parsed.action === "add_to_cart") {
+           return res.json({ reply: `Adding ${parsed.item_name} to your cart!`, action: parsed });
+        }
       }
-    } catch (e) {}
+    } catch (e) {
+      // Not JSON, just normal text
+    }
 
     res.json({ reply: aiText });
 
   } catch (error) {
-    console.error("AI Error:", error);
-    res.status(500).json({ reply: "I'm having a bit of trouble reading the menu." });
+    console.error("Self-Hosted AI Error:", error);
+    res.status(500).json({ reply: "Our digital waiter is taking a short break. Please try again." });
   }
 });
-
-
 
 module.exports = router;

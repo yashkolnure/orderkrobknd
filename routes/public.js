@@ -41,7 +41,7 @@ router.post("/order", async (req, res) => {
     // ✅ FIXED NOTIFICATION LOGIC (No Emojis in Headers)
     // ============================================================
     try {
-      const topic = `petoba_${restaurantId}`;
+      const topic = `subscribe/petoba_${restaurantId}`;
       
       // We send a JSON Object. Ntfy automatically handles emojis here.
       await axios.post(`https://ntfy.sh/`, {
