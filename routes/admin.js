@@ -1489,81 +1489,101 @@ router.put("/:restaurantId/bulk-update-images", async (req, res) => {
 });
 const btoa = (str) => Buffer.from(str).toString('base64');
 
+// Production Configuration
+const AI_CONFIG = {
+  endpoint: "http://72.60.196.84/api/generate",
+  auth: "Basic " + btoa("yashkolnure:Y@sh@8767640530"),
+  model: "petoba",
+  timeout: 45000 // 45 seconds max wait
+};
+
 router.post("/chat", async (req, res) => {
   const { userMessage, menuContext, restaurantName, currencySymbol } = req.body;
 
+  // 1. Validation
+  if (!userMessage || !menuContext) {
+    return res.status(400).json({ reply: "I missed that. Could you repeat?" });
+  }
+
   try {
-    // 1. SMART CONTEXT (Keeping your existing logic)
-    const lowerUserMsg = userMessage.toLowerCase();
-    let relevantItems = menuContext.filter(item => {
-      const textToCheck = `${item.n || item.name} ${item.c || item.category} ${item.d || item.description || ""}`.toLowerCase();
-      const userWords = lowerUserMsg.split(" ").filter(w => w.length > 3);
-      if (userWords.length === 0) return true;
-      return userWords.some(word => textToCheck.includes(word));
-    });
+    // 2. Context Optimization (Strictly limit to top 5 items for 1-core speed)
+    const lowerMsg = userMessage.toLowerCase();
+    const relevantItems = menuContext
+      .filter(item => {
+        const searchPool = `${item.n || item.name} ${item.c || item.category}`.toLowerCase();
+        return lowerMsg.split(" ").some(word => word.length > 3 && searchPool.includes(word));
+      })
+      .slice(0, 5);
 
-    relevantItems = relevantItems.length === 0 ? menuContext.slice(0, 15) : relevantItems.slice(0, 10);
+    const richContext = relevantItems.length > 0 
+      ? relevantItems.map(i => `- ${i.n || i.name} (${currencySymbol}${i.p || i.price})`).join("\n")
+      : "No specific items found for this query.";
 
-    const richContext = relevantItems.map(item => {
-      const name = item.n || item.name;
-      const price = item.p || item.price;
-      const desc = item.d || item.description || "";
-      return `- ${name} (${currencySymbol}${price}): ${desc}`;
-    }).join("\n");
+    // 3. System Prompt (Force JSON structure for reliability)
+    const systemPrompt = `Role: Waiter at ${restaurantName}.
+Menu: ${richContext}
+Rule 1: For orders, reply ONLY with JSON: {"action": "add_to_cart", "item": "NAME", "qty": 1}
+Rule 2: For questions, reply in 1 short sentence.`;
 
-    // 2. UPDATED PROMPT FOR OLLAMA
-    const systemPrompt = `You are a friendly waiter at ${restaurantName}.
-      MENU:
-      ${richContext}
-      
-      RULES:
-      1. Speak directly to the customer.
-      2. If USER ORDERS, return JSON: {"action": "add_to_cart", "item_name": "Exact Name", "quantity": 1}
-      3. Use BULLET POINTS for lists.
-      4. Keep answers short and professional.`;
+    // 4. Fetch with AbortController (Stops hung processes)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), AI_CONFIG.timeout);
 
-    // 3. CALL YOUR SELF-HOSTED VPS AI
-    const vpsResponse = await fetch("http://72.60.196.84/api/generate", {
+    const response = await fetch(AI_CONFIG.endpoint, {
       method: "POST",
+      signal: controller.signal,
       headers: { 
         "Content-Type": "application/json",
-        // Added the Auth header we set up in Nginx
-        "Authorization": "Basic " + btoa("yashkolnure:Y@sh@8767640530") 
+        "Authorization": AI_CONFIG.auth 
       },
       body: JSON.stringify({
-        model: "petoba", // Using the custom model you created
-        prompt: `System: ${systemPrompt}\n\nUser: ${userMessage}`,
-        stream: false // Set to false for easier parsing in a standard REST API
+        model: AI_CONFIG.model,
+        prompt: `System: ${systemPrompt}\nUser: ${userMessage}\nAssistant:`,
+        stream: false,
+        options: {
+          num_predict: 60,   // Limits CPU work
+          temperature: 0.2,   // Faster, more deterministic
+          num_thread: 1       // Matches your 1-core VPS
+        }
       })
     });
 
-    if (!vpsResponse.ok) {
-      throw new Error(`VPS AI responded with status: ${vpsResponse.status}`);
-    }
+    clearTimeout(timeoutId);
 
-    const data = await vpsResponse.json();
-    let aiText = data.response; // Ollama returns the text in the "response" field
+    if (!response.ok) throw new Error(`VPS_OFFLINE_${response.status}`);
 
-    // 4. CLEANUP (No more Ad Remover needed since it's YOUR AI!)
-    // But we still keep the JSON safety check in case the AI outputs a cart action
-    try {
-      if (aiText.trim().startsWith("{")) {
-        // If the AI returned a cart JSON, we pass it through or handle it
-        const parsed = JSON.parse(aiText);
-        // If it's a cart action, we might want to return it specifically
-        if(parsed.action === "add_to_cart") {
-           return res.json({ reply: `Adding ${parsed.item_name} to your cart!`, action: parsed });
+    const data = await response.json();
+    let aiText = data.response.trim();
+
+    // 5. Robust JSON Extracter (Handles cases where AI adds "Here is your JSON:")
+    if (aiText.includes("{") && aiText.includes("}")) {
+      try {
+        const jsonMatch = aiText.match(/\{.*\}/s);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          if (parsed.action === "add_to_cart") {
+            return res.json({ 
+              reply: `Excellent choice! I've added ${parsed.item || parsed.item_name} to your cart.`, 
+              action: parsed 
+            });
+          }
         }
+      } catch (e) {
+        console.warn("AI returned malformed JSON, falling back to text.");
       }
-    } catch (e) {
-      // Not JSON, just normal text
     }
 
     res.json({ reply: aiText });
 
   } catch (error) {
-    console.error("Self-Hosted AI Error:", error);
-    res.status(500).json({ reply: "Our digital waiter is taking a short break. Please try again." });
+    console.error("Production AI Error:", error.message);
+    
+    // Friendly production fallback
+    const fallbackMsg = error.name === 'AbortError' 
+      ? "The kitchen is a bit busy. Give me a moment!" 
+      : "I'm having trouble connecting to the menu. Try again in a second.";
+      
+    res.status(error.name === 'AbortError' ? 504 : 500).json({ reply: fallbackMsg });
   }
 });
 
