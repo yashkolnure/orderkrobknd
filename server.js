@@ -58,7 +58,11 @@ const allowedOrigins = [
   'https://menu-two-puce.vercel.app',
   'https://menu-coral-tau.vercel.app',
   'http://localhost:3000', 
-  'http://168.231.123.91', // for local development
+  'http://168.231.123.91',
+  'http://orderkaro.live',
+  'http://www.orderkaro.live',
+  'https://orderkaro.live',
+  'https://www.orderkaro.live', // for local development
 ];
 
 app.use((req, res, next) => {
